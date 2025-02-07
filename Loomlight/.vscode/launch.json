@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Godot Project in Chrome",
+            "type": "chrome",
+            "request": "launch",
+            "url": "http://localhost/loomlight/",
+            "webRoot": "C:/xampp/htdocs/loomlight",
+            "runtimeExecutable": "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+            "runtimeArgs": [
+                "--disable-web-security",
+                "--allow-file-access-from-files",
+                "--disable-extensions",
+                "--remote-debugging-port=9222",
+                "--disable-cache",                // Disables browser caching
+                "--incognito"                    // Opens Chrome in incognito mode
+            ],
+            "preLaunchTask": "Recompile Godot Project"
+        }
+    ]
+}
