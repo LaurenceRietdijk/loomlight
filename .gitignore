@@ -1,0 +1,41 @@
+# Ignore node_modules (dependencies)
+server/node_modules/
+Loomlight/node_modules/
+
+# Ignore environment files (API keys, passwords)
+server/.env
+Loomlight/.env
+
+# Ignore build files
+server/dist/
+Loomlight/dist/
+Loomlight/build/
+
+# Ignore logs
+*.log
+
+# Ignore system files (Mac & Windows)
+.DS_Store
+Thumbs.db
+
+# Ignore Godot temporary & compiled files
+*.import
+.import/
+export_presets.cfg
+export/
+.cache/
+.config/
+
+# Ignore Mono build artifacts
+Loomlight/.mono/
+Loomlight/.mono-config/
+Loomlight/.godot/mono/
+Loomlight/*.csproj
+Loomlight/*.sln
+Loomlight/bin/
+Loomlight/obj/
+
+# Ignore unwanted system files
+.DS_Store
+Thumbs.db
+
