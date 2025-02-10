@@ -5,6 +5,8 @@ Loomlight/node_modules/
 # Ignore environment files (API keys, passwords)
 server/.env
 Loomlight/.env
+server/config/default.json
+
 
 # Ignore build files
 server/dist/

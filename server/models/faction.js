@@ -20,14 +20,6 @@ const FactionSchema = new mongoose.Schema({
     military_strength: { type: String, required: true },
     political_influence: { type: String, required: true },
   },
-  allies: {
-    type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Faction" }],
-    default: [],
-  },
-  enemies: {
-    type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Faction" }],
-    default: [],
-  },
 });
 
 // Export both model and schema
