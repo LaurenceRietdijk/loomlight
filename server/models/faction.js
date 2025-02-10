@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const FactionSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, required: true },
   name: { type: String, required: true },
   description: { type: String, required: true },
   alignment: { type: String, required: true },
@@ -22,6 +21,5 @@ const FactionSchema = new mongoose.Schema({
   },
 });
 
-// Export both model and schema
-const Faction = mongoose.model("Faction", FactionSchema);
-module.exports = { Faction, schema: FactionSchema };
+
+module.exports = FactionSchema;

@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const factionPactSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, required: true },
   name: { type: String, required: true }, // Pact name (e.g., "The Iron Alliance")
   type: {
     type: String,
@@ -20,10 +19,10 @@ const factionPactSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: "Faction",
       required: true,
-      validate: [
-        (val) => val.length === 2,
-        "A faction pact must include exactly two factions.",
-      ],
+      // validate: [
+      //   (val) => val.length === 2,
+      //   "A faction pact must include exactly two factions.",
+      // ],
     },
   ], // Enforces exactly two factions
   description: { type: String, required: true }, // Lore behind the pact
@@ -38,5 +37,4 @@ factionPactSchema.pre("save", function (next) {
 
 factionPactSchema.index({ "factions.0": 1, "factions.1": 1 }, { unique: true });
 
-const FactionPact = mongoose.model("FactionPact", factionPactSchema);
-module.exports = { FactionPact, schema: factionPactSchema };
+module.exports = factionPactSchema;

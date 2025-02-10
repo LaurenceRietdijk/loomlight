@@ -1,5 +1,5 @@
 const getDatabaseConnection = require("../config/worldDBs");
-const { schema: LocaleSchema } = require("../models/locale");
+const LocaleSchema = require("../models/locale");
 
 class LocaleDAL {
   /**

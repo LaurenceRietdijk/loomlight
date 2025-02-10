@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { Event } = require("../models/event");
+const EventSchema = require("../models/event");
 const getDatabaseConnection = require("../config/worldDBs");
 
 class EventDAL {
@@ -11,7 +11,7 @@ class EventDAL {
    */
   static async insertEvent(world_id, eventData) {
     const db = getDatabaseConnection(world_id);
-    const EventModel = db.model("Event", Event.schema);
+    const EventModel = db.model("Event", EventSchema);
     return await new EventModel(eventData).save();
   }
 
@@ -22,7 +22,7 @@ class EventDAL {
    */
   static async getEvents(world_id) {
     const db = getDatabaseConnection(world_id);
-    const EventModel = db.model("Event", Event.schema);
+    const EventModel = db.model("Event", EventSchema);
     return await EventModel.find().exec();
   }
 
@@ -34,7 +34,7 @@ class EventDAL {
    */
   static async getEventById(world_id, event_id) {
     const db = getDatabaseConnection(world_id);
-    const EventModel = db.model("Event", Event.schema);
+    const EventModel = db.model("Event", EventSchema);
     return await EventModel.findById(event_id).exec();
   }
 }

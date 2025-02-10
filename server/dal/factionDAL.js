@@ -1,5 +1,5 @@
 const mongoose = require("mongoose");
-const { Faction } = require("../models/faction");
+const FactionSchema  = require("../models/faction");
 const getDatabaseConnection = require("../config/worldDBs");
 
 class FactionDAL {
@@ -11,7 +11,7 @@ class FactionDAL {
    */
   static async insertFaction(world_id, factionData) {
     const db = getDatabaseConnection(world_id);
-    const FactionModel = db.model("Faction", Faction.schema);
+    const FactionModel = db.model("Faction", FactionSchema);
     return await new FactionModel(factionData).save();
   }
 
@@ -22,7 +22,7 @@ class FactionDAL {
    */
   static async getFactions(world_id) {
     const db = getDatabaseConnection(world_id);
-    const FactionModel = db.model("Faction", Faction.schema);
+    const FactionModel = db.model("Faction", FactionSchema);
     return await FactionModel.find().exec();
   }
 
@@ -34,7 +34,7 @@ class FactionDAL {
    */
   static async getFactionById(world_id, faction_id) {
     const db = getDatabaseConnection(world_id);
-    const FactionModel = db.model("Faction", Faction.schema);
+    const FactionModel = db.model("Faction", FactionSchema);
     return await FactionModel.findById(faction_id).exec();
   }
 }

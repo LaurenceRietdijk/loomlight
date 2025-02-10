@@ -1,18 +1,42 @@
 const mongoose = require("mongoose");
-const { FactionPact } = require("../models/factionPact");
+const factionPactSchema = require("../models/factionPact");
 const getDatabaseConnection = require("../config/worldDBs");
 
 class FactionPactDAL {
   /**
-   * Inserts a new faction pact into the world database.
+   * Inserts a new faction pact into the world database after verifying and amending the data.
    * @param {string} world_id - The world database ID.
-   * @param {Object} pactData - Pact details.
-   * @returns {Promise<Object>} - Inserted pact document.
+   * @param {Object} pactData - The faction pact details.
+   * @returns {Promise<Object>} - The inserted faction pact document.
    */
   static async insertFactionPact(world_id, pactData) {
+    if (
+      !pactData ||
+      !Array.isArray(pactData.factions) ||
+      pactData.factions.length !== 2
+    ) {
+      throw new Error(
+        "Invalid faction pact: Must include exactly two factions."
+      );
+    }
+
+    // Ensure `events` is an array
+    if (!Array.isArray(pactData.events)) {
+      pactData.events = [];
+    }
+
     const db = getDatabaseConnection(world_id);
-    const FactionPactModel = db.model("FactionPact", FactionPact.schema);
-    return await new FactionPactModel(pactData).save();
+    const FactionPactModel = db.model("FactionPact", factionPactSchema);
+
+    try {
+      const factionPact = new FactionPactModel(pactData);
+      return await factionPact.save();
+    } catch (error) {
+      console.error("Failed pactData:", JSON.stringify(pactData, null, 2));
+      console.error("Error inserting faction pact:", error);
+      throw error;
+    }
+
   }
 
   /**
@@ -22,7 +46,7 @@ class FactionPactDAL {
    */
   static async getFactionPacts(world_id) {
     const db = getDatabaseConnection(world_id);
-    const FactionPactModel = db.model("FactionPact", FactionPact.schema);
+    const FactionPactModel = db.model("FactionPact", factionPactSchema);
     return await FactionPactModel.find().exec();
   }
 
@@ -34,7 +58,7 @@ class FactionPactDAL {
    */
   static async getFactionPactById(world_id, pact_id) {
     const db = getDatabaseConnection(world_id);
-    const FactionPactModel = db.model("FactionPact", FactionPact.schema);
+    const FactionPactModel = db.model("FactionPact", factionPactSchema);
     return await FactionPactModel.findById(pact_id).exec();
   }
 }

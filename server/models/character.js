@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const CharacterSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, required: true },
   name: { type: String, required: true },
   title: { type: String, default: "" }, 
   description: { type: String, required: true },
@@ -28,5 +27,5 @@ const CharacterSchema = new mongoose.Schema({
   ],
 });
 
-const Character = mongoose.model("Character", CharacterSchema);
-module.exports = { Character, schema: CharacterSchema };
+
+module.exports = CharacterSchema;

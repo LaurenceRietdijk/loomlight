@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const WorldDAL = require("../dal/worldDAL");
 const WorldGenerator = require("../generation/worldGenerator");
+const FactionGenerator = require("../generation/factionGenerator");
 
 /**
  * Fetch an existing world from the database (no AI generation).
@@ -36,7 +37,9 @@ router.post("/generate", async (req, res) => {
     }
 
     // AI generation + database insertion
-    const newWorld = await WorldGenerator.generateAndInsertWorld(creator);
+    const newWorld = await WorldGenerator.generateWorld(creator);
+    await FactionGenerator.generateFactions(newWorld);
+
     res.status(201).json({ message: "World generated", world: newWorld });
   } catch (error) {
     console.error("Error generating world:", error);

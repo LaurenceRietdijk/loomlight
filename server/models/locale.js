@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 
 const LocaleSchema = new mongoose.Schema({
-  _id: { type: mongoose.Schema.Types.ObjectId, required: true },
   name: { type: String, required: true },
   type: { type: String, required: true },
   description: { type: String, required: true },
@@ -30,5 +29,5 @@ const LocaleSchema = new mongoose.Schema({
   special_features: { type: [String], default: [] }, // Unique landmarks, historical sites, etc.
 });
 
-const Locale = mongoose.model("Locale", LocaleSchema);
-module.exports = { Locale, schema: LocaleSchema };
+
+module.exports = LocaleSchema;

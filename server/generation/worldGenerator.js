@@ -12,7 +12,7 @@ class WorldGenerator {
    * @param {string} creator - The ID of the user creating the world.
    * @returns {Promise<Object>} - The newly inserted world from the database.
    */
-  static async generateAndInsertWorld(creator) {
+  static async generateWorld(creator) {
     console.log(`Generating a new fantasy world for creator ${creator}...`);
 
     const completion = await openai.chat.completions.create({
@@ -40,22 +40,12 @@ class WorldGenerator {
 
     let generatedWorld = JSON.parse(completion.choices[0].message.content);
 
-    // Prepare the world data for insertion
-    const worldData = {
-      _id: new mongoose.Types.ObjectId(),
-      name: generatedWorld.name,
-      worldBuilding: generatedWorld.worldBuilding,
-      dateCreated: new Date().toLocaleDateString("en-GB"),
-      timeStamp: new Date().toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
-      creator: creator,
-    };
-
     // Insert into database via the DAL
-    return await WorldDAL.insertWorld(worldData);
+    return await WorldDAL.insertWorld(
+      creator,
+      generatedWorld.name,
+      generatedWorld.worldBuilding
+    );
   }
 }
 
