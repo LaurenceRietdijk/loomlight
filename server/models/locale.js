@@ -2,7 +2,11 @@ const mongoose = require("mongoose");
 
 const LocaleSchema = new mongoose.Schema({
   name: { type: String, required: true },
-  type: { type: String, required: true },
+  type: {
+    type: String,
+    enum: ["Camp", "Hamlet", "Village", "Wilderness", "Cave", "Dungeon"],
+    default: "Camp",
+  },
   description: { type: String, required: true },
   coordinates: {
     x: { type: Number, required: true }, // X coordinate (integer)
