@@ -29,7 +29,9 @@ const getDatabaseConnection = (world_id) => {
     return connections[sanitizedId]; // Return cached connection
   }
 
-  const uri = config.get("DBURI");
+  const uri = config.get("mongo.useLocal")
+    ? config.get("mongo.localURI")
+    : config.get("mongo.remoteURI");
   const dbURI = `${uri}/${sanitizedId}`; // Use sanitized world_id as the database name
 
   const newConnection = mongoose.createConnection(dbURI, {
