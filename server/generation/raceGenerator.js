@@ -100,7 +100,7 @@ class RaceGenerator {
       
     let insertedRaces = [];
     for (let race of generatedRaces) {
-      let insertedRace = await RaceDAL.insertRace(world._id, race);
+      let insertedRace = await RaceDAL.insertRace(world._id.toString(), race);
       insertedRaces.push(insertedRace);
     }
 

@@ -30,7 +30,7 @@ router.get("/", async (req, res) => {
  */
 router.post("/generate", async (req, res) => {
   try {
-    const { world_id, x, y } = req.body;
+    const { world_id, x, y, locale_type } = req.body;
     if (!world_id || x === undefined || y === undefined) {
       return res.status(400).json({ error: "Missing world_id or coordinates" });
     }
@@ -39,7 +39,8 @@ router.post("/generate", async (req, res) => {
     const newLocale = await LocaleGenerator.generateAndInsertLocale(
       world_id,
       x,
-      y
+      y,
+      locale_type
     );
     res.status(201).json({ message: "Locale generated", locale: newLocale });
   } catch (error) {
