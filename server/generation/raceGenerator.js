@@ -1,4 +1,3 @@
-const mongoose = require("mongoose");
 const OpenAI = require("openai");
 const RaceDAL = require("../dal/raceDAL");
 
@@ -15,6 +14,9 @@ class RaceGenerator {
    */
   static async generateRaces(world, count = 3) {
     console.log(`Generating ${count} races for world ${world.name}...`);
+
+    const worldDescription =
+      world.worldBuilding || world.description || "No description provided.";
 
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
@@ -59,10 +61,7 @@ class RaceGenerator {
         },
         {
           role: "user",
-          content: `Generate ${count} races for the world **${world.name}**.
-                    
-                    ### World Context:
-                    ${world.description}`,
+          content: `Generate ${count} races for the world **${world.name}**.\n\n                    ### World Context:\n                    ${worldDescription}`,
         },
       ],
       max_tokens: 4096,

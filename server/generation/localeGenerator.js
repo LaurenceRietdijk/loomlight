@@ -2,6 +2,7 @@ const mongoose = require("mongoose");
 const OpenAI = require("openai");
 const LocaleDAL = require("../dal/localeDAL");
 const CharacterGenerator = require("./characterGenerator");
+const RaceDAL = require("../dal/raceDAL");
 
 const openai = new OpenAI({
   apiKey: process.env.API_KEY,
@@ -107,6 +108,14 @@ Use this format:
 
     const generatedLocale = JSON.parse(completion.choices[0].message.content);
 
+    // Choose a primary race from sentient races
+    const races = await RaceDAL.getRaces(world_id);
+    const sentientRaces = races.filter(
+      (r) => r.classification === "Sapient"
+    );
+    const primaryRace =
+      sentientRaces[Math.floor(Math.random() * sentientRaces.length)] || null;
+
     // Initialize localeData
     const localeData = {
       _id: new mongoose.Types.ObjectId(),
@@ -114,6 +123,7 @@ Use this format:
       type: generatedLocale.type,
       description: generatedLocale.description,
       coordinates: { x, y },
+      primary_race: primaryRace ? primaryRace._id : null,
       factions: [],
       characters: [],
       population,
@@ -131,7 +141,8 @@ Use this format:
       const characters = await CharacterGenerator.generateCharactersForBuilding(
         world_id,
         localeData,
-        building
+        building,
+        primaryRace
       );
 
       for (const character of characters) {
@@ -148,7 +159,8 @@ Use this format:
     for (const [partnerA, partnerB] of couples) {
       const children = CharacterGenerator.createFamily(
         [partnerA, partnerB],
-        locale
+        localeData,
+        primaryRace
       );
       localeData.characters.push(...children);
     }

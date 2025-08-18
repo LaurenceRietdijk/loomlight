@@ -14,6 +14,7 @@ app.use("/chat", require("./routes/chat"));
 app.use("/world", require("./routes/world"));
 app.use("/admin", require("./routes/admin"));
 app.use("/locale", require("./routes/locale"));
+app.use("/race", require("./routes/race"));
 
 
 app.listen(PORT, () => {

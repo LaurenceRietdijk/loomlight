@@ -1,5 +1,26 @@
 const mongoose = require("mongoose");
 
+// Container holds items and lives inside a room.
+const ContainerSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    type: { type: String, required: true },
+    items: [
+      { type: mongoose.Schema.Types.ObjectId, ref: "Item" },
+    ],
+  },
+  { _id: false }
+);
+
+// Rooms are part of a locale and may hold a single container.
+const RoomSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    container: { type: ContainerSchema, default: null },
+  },
+  { _id: false }
+);
+
 const LocaleSchema = new mongoose.Schema({
   name: { type: String, required: true },
   type: {
@@ -20,6 +41,8 @@ const LocaleSchema = new mongoose.Schema({
     x: { type: Number, required: true },
     y: { type: Number, required: true },
   },
+  primary_race: { type: mongoose.Schema.Types.ObjectId, ref: "Race" },
+  rooms: { type: [RoomSchema], default: [] },
   factions: [
     {
       _id: { type: mongoose.Schema.Types.ObjectId, ref: "Faction" },

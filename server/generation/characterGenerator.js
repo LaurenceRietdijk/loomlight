@@ -73,6 +73,13 @@ The character format is:
     const raw = completion.choices[0].message.content;
     const parsed = JSON.parse(raw);
 
+    let raceName = parsed.race;
+    if (locale.primary_race) {
+      const Race = mongoose.model("Race");
+      const raceDoc = await Race.findById(locale.primary_race).lean();
+      raceName = raceDoc?.name || raceName;
+    }
+
     // Construct the character document
     const characterData = {
       _id: new mongoose.Types.ObjectId(),
@@ -80,7 +87,7 @@ The character format is:
       title: parsed.title || "",
       description: parsed.description,
       personality: parsed.personality,
-      race: parsed.race,
+      race: raceName,
       age: parsed.age || null,
       gender: allowedGenders.includes(parsed.gender)
         ? parsed.gender
@@ -102,7 +109,12 @@ The character format is:
    * @param {string} buildingName - Name of the building (e.g. "Blacksmith's Forge").
    * @returns {Promise<Array>} - Array of inserted character objects.
    */
-  static async generateCharactersForBuilding(world_id, locale, buildingName) {
+  static async generateCharactersForBuilding(
+    world_id,
+    locale,
+    buildingName,
+    primaryRace
+  ) {
     console.log(
       `Generating characters for building "${buildingName}" in locale "${locale.name}"...`
     );
@@ -113,6 +125,7 @@ The character format is:
 
 The locale has a population of ${locale.population || "unknown"}.
 Locale description: ${locale.description}
+All characters should be of the ${primaryRace?.name || "Human"} race.
 
 Each character should have a distinct role (e.g. forge master, apprentice, bookkeeper) and personality. Avoid repeating names or roles.
 
@@ -168,7 +181,7 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       title: c.title || "",
       description: c.description,
       personality: c.personality,
-      race: c.race,
+      race: primaryRace?.name || c.race,
       age: c.age || null,
       gender: allowedGenders.includes(c.gender)
         ? c.gender
@@ -219,10 +232,16 @@ Return your answer as a valid JSON array with no extra text. Use this format:
    * @param {Object} locale - The locale object the children belong to (must contain `_id`).
    * @returns {Array<Object>} An array of child character documents, ready for insertion.
    */
-  static createFamily([parentA, parentB], locale) {
+  static createFamily([parentA, parentB], locale, race) {
     const minChildbearingAge = 16;
-    const maxChildren = 4;
     const childbearingInterval = 2; // Avg years between kids
+
+    const lifespan = race?.physiology?.lifespan || 80;
+    const maxChildbearingAge = Math.floor(lifespan / 2);
+    const maxChildren = Math.max(
+      0,
+      Math.floor((maxChildbearingAge - minChildbearingAge) / childbearingInterval)
+    );
 
     // Get marriage duration
     const spouseRelation = parentA.relationships.find(
@@ -234,7 +253,8 @@ Return your answer as a valid JSON array with no extra text. Use this format:
     const fertileYears = Math.min(
       yearsMarried,
       parentA.age - minChildbearingAge,
-      parentB.age - minChildbearingAge
+      parentB.age - minChildbearingAge,
+      maxChildbearingAge - minChildbearingAge
     );
 
     if (fertileYears < 1) return []; // No opportunity to have kids
@@ -253,7 +273,8 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       const maxChildAge = Math.min(
         yearsMarried,
         parentA.age - minChildbearingAge,
-        parentB.age - minChildbearingAge
+        parentB.age - minChildbearingAge,
+        maxChildbearingAge - minChildbearingAge
       );
       const age = Math.max(1, Math.floor(Math.random() * maxChildAge));
 

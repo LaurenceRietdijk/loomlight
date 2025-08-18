@@ -41,3 +41,7 @@ Loomlight/obj/
 .DS_Store
 Thumbs.db
 
+# Ignore patch files
+*.patch
+*.diff
+
