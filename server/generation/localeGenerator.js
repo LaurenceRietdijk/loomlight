@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const OpenAI = require("openai");
 const LocaleDAL = require("../dal/localeDAL");
+const characterDAL = require("../dal/characterDAL");
 const CharacterGenerator = require("./characterGenerator");
 const RaceDAL = require("../dal/raceDAL");
 
@@ -137,6 +138,7 @@ Use this format:
     };
 
     // Generate characters per building
+    const allCharacters = [];
     for (const building of buildings) {
       const characters = await CharacterGenerator.generateCharactersForBuilding(
         world_id,
@@ -145,6 +147,8 @@ Use this format:
         primaryRace
       );
 
+      allCharacters.push(...characters);
+      
       for (const character of characters) {
         localeData.characters.push({
           _id: character._id,
@@ -154,7 +158,8 @@ Use this format:
       }
     }
 
-    const couples = assignSpouses(localeData.characters);
+    // Assign spouses and create families
+    const couples = assignSpouses(allCharacters);
 
     for (const [partnerA, partnerB] of couples) {
       const children = CharacterGenerator.createFamily(
@@ -162,10 +167,21 @@ Use this format:
         localeData,
         primaryRace
       );
-      localeData.characters.push(...children);
+      
+      for (const child of children) {
+        localeData.characters.push({
+          _id: child._id,
+          building: child.building,
+          role: child.role,
+        });
+      }
+
+      allCharacters.push(...children);
     }
 
 
+    // Insert all characters
+    await characterDAL.insertCharacters(world_id, allCharacters);
 
     // Insert the complete locale
     return await LocaleDAL.insertLocale(world_id, localeData);
@@ -176,72 +192,88 @@ Use this format:
 
 
 function assignSpouses(characters) {
-  const minAge = 16;
   const maxAgeGap = 20;
   const minMarriageAge = 16;
   const maxMarriageLength = 30;
 
+  const g = (c) =>
+    String(c.gender || "")
+      .trim()
+      .toLowerCase();
+  const ageNum = (c) => Number(c.age);
+  const isAdult = (c) =>
+    Number.isFinite(ageNum(c)) && ageNum(c) >= minMarriageAge;
+  const hasSpouse = (c) =>
+    Array.isArray(c.relationships) &&
+    c.relationships.some((r) => r.connection === "spouse");
+
   const males = characters.filter(
-    (c) =>
-      c.gender === "male" &&
-      typeof c.age === "number" &&
-      c.age >= minMarriageAge
+    (c) => (g(c) === "male" || g(c) === "m") && isAdult(c) && !hasSpouse(c)
   );
   const females = characters.filter(
-    (c) =>
-      c.gender === "female" &&
-      typeof c.age === "number" &&
-      c.age >= minMarriageAge
+    (c) => (g(c) === "female" || g(c) === "f") && isAdult(c) && !hasSpouse(c)
   );
 
   const usedIds = new Set();
   const couples = [];
 
+  // optional: shuffle females for fairness
+  const shuffledFemales = [...females].sort(() => Math.random() - 0.5);
+
   for (const male of males) {
-    if (usedIds.has(male._id.toString())) continue;
+    const maleId = String(male._id);
+    if (usedIds.has(maleId)) continue;
 
-    for (const female of females) {
-      if (usedIds.has(female._id.toString())) continue;
+    for (const female of shuffledFemales) {
+      const femaleId = String(female._id);
+      if (usedIds.has(femaleId)) continue;
 
-      const ageDiff = Math.abs(male.age - female.age);
-      if (ageDiff <= maxAgeGap) {
-        const maxPossibleMarriageLength = Math.min(
-          male.age - minMarriageAge,
-          female.age - minMarriageAge,
-          maxMarriageLength
-        );
+      const mAge = ageNum(male);
+      const fAge = ageNum(female);
+      if (!Number.isFinite(mAge) || !Number.isFinite(fAge)) continue;
 
-        const yearsMarried =
-          Math.floor(Math.random() * maxPossibleMarriageLength) + 1;
+      const ageDiff = Math.abs(mAge - fAge);
+      if (ageDiff > maxAgeGap) continue;
 
-        male.relationships = male.relationships || [];
-        female.relationships = female.relationships || [];
+      const maxPossibleMarriageLength = Math.min(
+        mAge - minMarriageAge,
+        fAge - minMarriageAge,
+        maxMarriageLength
+      );
+      if (maxPossibleMarriageLength <= 0) continue;
 
-        male.relationships.push({
-          character_id: female._id,
-          connection: "spouse",
-          since: yearsMarried,
-          shared_children: [],
-        });
+      const yearsMarried =
+        Math.floor(Math.random() * maxPossibleMarriageLength) + 1;
 
-        female.relationships.push({
-          character_id: male._id,
-          connection: "spouse",
-          since: yearsMarried,
-          shared_children: [],
-        });
+      male.relationships = male.relationships || [];
+      female.relationships = female.relationships || [];
 
-        usedIds.add(male._id.toString());
-        usedIds.add(female._id.toString());
+      male.relationships.push({
+        character_id: female._id,
+        connection: "spouse",
+        since: yearsMarried,
+        shared_children: [],
+      });
 
-        couples.push([male, female]); // collect couple pair for next step
-        break;
-      }
+      female.relationships.push({
+        character_id: male._id,
+        connection: "spouse",
+        since: yearsMarried,
+        shared_children: [],
+      });
+
+      usedIds.add(maleId);
+      usedIds.add(femaleId);
+
+      console.log(`Couple found: "${male.name}" and "${female.name}"...`);
+      couples.push([male, female]);
+      break;
     }
   }
 
   return couples;
 }
+
 
 
 const HAMLET_BUILDINGS = [

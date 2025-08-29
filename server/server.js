@@ -9,7 +9,6 @@ connectDB();
 
 app.use(express.json());
 
-app.use("/test", require("./routes/test"));
 app.use("/chat", require("./routes/chat"));
 app.use("/world", require("./routes/world"));
 app.use("/admin", require("./routes/admin"));

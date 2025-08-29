@@ -105,6 +105,9 @@ The character format is:
 
   /**
    * Generates 2–4 unique characters for a building within a locale and inserts them.
+   *
+   * Returns list of documents only; DOES NOT INSERT INTO DB!!!
+   *
    * @param {Object} locale - The full locale document (must include _id, name, type, description, population).
    * @param {string} buildingName - Name of the building (e.g. "Blacksmith's Forge").
    * @returns {Promise<Array>} - Array of inserted character objects.
@@ -183,9 +186,7 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       personality: c.personality,
       race: primaryRace?.name || c.race,
       age: c.age || null,
-      gender: allowedGenders.includes(c.gender)
-        ? c.gender
-        : "unknown",
+      gender: allowedGenders.includes(c.gender) ? c.gender : "unknown",
       faction: null,
       locale: locale._id,
       building: buildingName,
@@ -210,18 +211,14 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       "Character",
       require("../models/character")
     );
-    const insertedCharacters = await CharacterDAL.insertCharacters(
-      world_id,
-      characterDocuments
-    );
 
-    return insertedCharacters;
+    return characterDocuments;
   }
-
-
 
   /**
    * Creates a set of child characters based on two married parent characters.
+   *
+   * Returns list of documents only; DOES NOT INSERT INTO DB!!!
    *
    * Determines the number and age of children based on marriage duration
    * and the fertility window of both parents. Establishes bidirectional
@@ -232,24 +229,19 @@ Return your answer as a valid JSON array with no extra text. Use this format:
    * @param {Object} locale - The locale object the children belong to (must contain `_id`).
    * @returns {Array<Object>} An array of child character documents, ready for insertion.
    */
-  static createFamily([parentA, parentB], locale, race) {
+  static async createFamily([parentA, parentB], locale, race) {
     const minChildbearingAge = 16;
-    const childbearingInterval = 2; // Avg years between kids
-
+    const childbearingInterval = 2;
     const lifespan = race?.physiology?.lifespan || 80;
     const maxChildbearingAge = Math.floor(lifespan / 2);
-    const maxChildren = Math.max(
-      0,
-      Math.floor((maxChildbearingAge - minChildbearingAge) / childbearingInterval)
-    );
 
-    // Get marriage duration
     const spouseRelation = parentA.relationships.find(
-      (r) => r.character_id.toString() === parentB._id.toString()
+      (r) =>
+        r.character_id.toString() === parentB._id.toString() &&
+        r.connection === "spouse"
     );
     const yearsMarried = spouseRelation?.since || 0;
 
-    // Determine shared fertile years
     const fertileYears = Math.min(
       yearsMarried,
       parentA.age - minChildbearingAge,
@@ -257,38 +249,94 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       maxChildbearingAge - minChildbearingAge
     );
 
-    if (fertileYears < 1) return []; // No opportunity to have kids
+    if (fertileYears < 1) return [];
 
-    const maxPossibleChildren = Math.min(
-      Math.floor(fertileYears / childbearingInterval),
-      maxChildren
+    const expected = Math.floor(fertileYears / childbearingInterval);
+    const numChildren = Math.max(
+      0,
+      Math.floor(expected * (0.5 + Math.random()))
     );
-    const numChildren = Math.floor(Math.random() * (maxPossibleChildren + 1)); // 0 to maxPossibleChildren
 
-    const children = [];
-    const parentIds = [parentA._id, parentB._id];
-
+    // 1. Build skeletons programmatically
+    const skeletons = [];
     for (let i = 0; i < numChildren; i++) {
-      // Age: must be younger than both parents and born within marriage
-      const maxChildAge = Math.min(
-        yearsMarried,
-        parentA.age - minChildbearingAge,
-        parentB.age - minChildbearingAge,
-        maxChildbearingAge - minChildbearingAge
-      );
-      const age = Math.max(1, Math.floor(Math.random() * maxChildAge));
+      const birthGap =
+        i * childbearingInterval +
+        Math.floor(Math.random() * childbearingInterval);
+      const age = Math.max(1, yearsMarried - birthGap);
 
-      const gender = Math.random() < 0.5 ? "male" : "female";
+      const genderRoll = Math.random();
+      const gender =
+        genderRoll < 0.48 ? "male" : genderRoll < 0.96 ? "female" : "nonbinary";
 
-      const child = {
+      skeletons.push({
         _id: new mongoose.Types.ObjectId(),
-        name: "(Child)",
-        title: "",
-        description: `A young ${gender} child born to ${parentA.name} and ${parentB.name}.`,
-        personality: "Still developing.",
-        race: parentA.race || "Human",
-        gender,
         age,
+        gender,
+        race: parentA.race || "Human",
+      });
+    }
+
+    if (skeletons.length === 0) return [];
+
+    // 2. Ask GPT to flesh them out
+    const prompt = `You are helping generate child NPCs in a medieval fantasy world.
+
+Parents:
+- ${parentA.name}, age ${parentA.age}, ${parentA.race}. Description: ${parentA.description}
+- ${parentB.name}, age ${parentB.age}, ${parentB.race}. Description: ${parentB.description}
+
+Race context:
+${JSON.stringify(race, null, 2)}
+
+Children skeletons:
+${JSON.stringify(skeletons, null, 2)}
+
+For each skeleton, fill in:
+- "name": a fitting name for their culture/race,
+- "description": 1–2 sentences describing appearance and personality,
+- "personality": a brief temperament,
+Keep the age, gender, and race values exactly as given.
+
+Return ONLY a JSON array with the same length as skeletons.`;
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You generate NPC children for a medieval fantasy world. Output must be valid JSON array only.",
+        },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 500,
+      temperature: 0.8,
+    });
+
+    let fleshed;
+    try {
+      fleshed = JSON.parse(completion.choices[0].message.content);
+    } catch (e) {
+      console.error(
+        "Failed to parse GPT children:",
+        completion.choices[0].message.content
+      );
+      throw e;
+    }
+
+    // 3. Merge GPT data into skeleton docs
+    const children = skeletons.map((s, idx) => {
+      const g = fleshed[idx] || {};
+      return {
+        _id: s._id,
+        name: g.name || "(Child)",
+        description:
+          g.description || `Child of ${parentA.name} and ${parentB.name}`,
+        personality: g.personality || "Still developing.",
+        race: s.race,
+        gender: s.gender,
+        age: s.age,
         faction: null,
         locale: locale._id,
         building: null,
@@ -296,44 +344,31 @@ Return your answer as a valid JSON array with no extra text. Use this format:
         status: "active",
         relationships: [],
       };
+    });
 
-      // Link parents <-> child
+    // 4. Relationships (parents, siblings, shared_children)
+    for (const child of children) {
       for (const parent of [parentA, parentB]) {
         parent.relationships.push({
           character_id: child._id,
           connection: "child",
         });
-
         child.relationships.push({
           character_id: parent._id,
           connection: "parent",
         });
-
-        // Add to shared_children (if relationship object exists)
-        const rel = parent.relationships.find(
-          (r) =>
-            r.character_id.toString() ===
-              (parent === parentA
-                ? parentB._id.toString()
-                : parentA._id.toString()) && r.connection === "spouse"
-        );
-        if (rel && Array.isArray(rel.shared_children)) {
-          rel.shared_children.push(child._id);
-        }
       }
-
-      children.push(child);
+      if (spouseRelation && Array.isArray(spouseRelation.shared_children)) {
+        spouseRelation.shared_children.push(child._id);
+      }
     }
 
-    // Add sibling relationships
+    // Add sibling links
     for (const child of children) {
       child.relationships.push(
         ...children
           .filter((c) => c._id.toString() !== child._id.toString())
-          .map((sibling) => ({
-            character_id: sibling._id,
-            connection: "sibling",
-          }))
+          .map((sib) => ({ character_id: sib._id, connection: "sibling" }))
       );
     }
 
