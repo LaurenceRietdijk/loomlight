@@ -24,4 +24,45 @@ router.get("/", async (req, res) => {
   }
 });
 
+/**
+ * Character dialogue endpoint
+ * Expects: { character: <object>, history: [{role, content}], user: <string> }
+ * Returns: { reply: <string> }
+ */
+router.post("/character", async (req, res) => {
+  try {
+    const { character, history, user } = req.body || {};
+    if (!character || !user) {
+      return res.status(400).json({ error: "Missing character or user message" });
+    }
+
+    // Build system prompt with full character doc
+    const system = `You are roleplaying as the following character. Stay in character, respond concisely and naturally.\n\n` +
+      `CHARACTER DOCUMENT (JSON):\n${JSON.stringify(character, null, 2)}\n\n` +
+      `Guidelines:\n- Do not reveal that you are an AI.\n- Keep responses grounded in the character's knowledge and context.\n- If asked about world details, rely on what's in the document or reasonable in-universe assumptions.`;
+
+    const messages = [{ role: "system", content: system }];
+    if (Array.isArray(history)) {
+      for (const m of history) {
+        if (!m || !m.role || !m.content) continue;
+        const role = m.role === 'assistant' ? 'assistant' : 'user';
+        messages.push({ role, content: String(m.content) });
+      }
+    }
+    messages.push({ role: "user", content: String(user) });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages,
+      temperature: 0.8,
+    });
+
+    const reply = completion.choices?.[0]?.message?.content ?? "";
+    res.status(200).json({ reply });
+  } catch (error) {
+    console.error("Error in /chat/character:", error);
+    res.status(500).json({ error: "Failed to generate character reply" });
+  }
+});
+
 module.exports = router;

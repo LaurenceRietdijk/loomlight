@@ -1,26 +1,5 @@
 const mongoose = require("mongoose");
 
-// Container holds items and lives inside a room.
-const ContainerSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    type: { type: String, required: true },
-    items: [
-      { type: mongoose.Schema.Types.ObjectId, ref: "Item" },
-    ],
-  },
-  { _id: false }
-);
-
-// Rooms are part of a locale and may hold a single container.
-const RoomSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true },
-    container: { type: ContainerSchema, default: null },
-  },
-  { _id: false }
-);
-
 const LocaleSchema = new mongoose.Schema({
   name: { type: String, required: true },
   type: {
@@ -42,7 +21,6 @@ const LocaleSchema = new mongoose.Schema({
     y: { type: Number, required: true },
   },
   primary_race: { type: mongoose.Schema.Types.ObjectId, ref: "Race" },
-  rooms: { type: [RoomSchema], default: [] },
   factions: [
     {
       _id: { type: mongoose.Schema.Types.ObjectId, ref: "Faction" },
@@ -52,7 +30,7 @@ const LocaleSchema = new mongoose.Schema({
   characters: [
     {
       _id: { type: mongoose.Schema.Types.ObjectId, ref: "Character" },
-      building: { type: String }, // name of building this character is tied to
+      building: { type: mongoose.Schema.Types.ObjectId, ref: "Building" },
       role: { type: String, default: "just a local resident" }, // their role in that building
     },
   ],
@@ -63,7 +41,7 @@ const LocaleSchema = new mongoose.Schema({
     political_importance: { type: String, default: "unknown" },
   },
   special_features: { type: [String], default: [] },
-  buildings: { type: [String], default: [] }, // key industry or civic buildings
+  buildings: [{ type: mongoose.Schema.Types.ObjectId, ref: "Building" }],
 });
 
 module.exports = LocaleSchema;

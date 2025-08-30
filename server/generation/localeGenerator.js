@@ -3,6 +3,7 @@ const OpenAI = require("openai");
 const LocaleDAL = require("../dal/localeDAL");
 const characterDAL = require("../dal/characterDAL");
 const CharacterGenerator = require("./characterGenerator");
+const BuildingGenerator = require("./buildingGenerator");
 const RaceDAL = require("../dal/raceDAL");
 
 const openai = new OpenAI({
@@ -134,50 +135,134 @@ Use this format:
         political_importance: "unknown",
       },
       special_features: generatedLocale.special_features || [],
-      buildings,
+      buildings: [],
     };
 
-    // Generate characters per building
+    // Generate characters for each building type first
     const allCharacters = [];
-    for (const building of buildings) {
+    const workRosters = [];
+    for (const buildingType of buildings) {
       const characters = await CharacterGenerator.generateCharactersForBuilding(
         world_id,
         localeData,
-        building,
+        buildingType,
         primaryRace
       );
-
       allCharacters.push(...characters);
-      
-      for (const character of characters) {
-        localeData.characters.push({
-          _id: character._id,
-          building: building,
-          role: character.role,
-        });
-      }
+      workRosters.push(
+        characters.map((c) => ({
+          character_id: c._id.toString(),
+          name: c.name,
+          role: c.role,
+          tags: ["employee"],
+        }))
+      );
     }
 
     // Assign spouses and create families
     const couples = assignSpouses(allCharacters);
-
+    const families = [];
     for (const [partnerA, partnerB] of couples) {
-      const children = CharacterGenerator.createFamily(
+      const children = await CharacterGenerator.createFamily(
         [partnerA, partnerB],
         localeData,
         primaryRace
-      );
-      
-      for (const child of children) {
-        localeData.characters.push({
-          _id: child._id,
-          building: child.building,
-          role: child.role,
-        });
+      ) || [];
+      if (Array.isArray(children) && children.length) {
+        allCharacters.push(...children);
       }
-
-      allCharacters.push(...children);
+      families.push({ parents: [partnerA, partnerB], children: Array.isArray(children) ? children : [] });
     }
+
+    // Compose full list of building types and rosters (workplaces first, then houses)
+    const houseTypes = families.map(() => "House");
+    const houseRosters = families.map((fam) =>
+      [
+        ...(Array.isArray(fam.parents) ? fam.parents : []),
+        ...(Array.isArray(fam.children) ? fam.children : []),
+      ].map((c) => ({
+        character_id: c._id.toString(),
+        name: c.name,
+        role: c.role,
+        tags: ["resident"].concat(
+          c.role === "child" ? ["child"] : ["parent"]
+        ),
+      }))
+    );
+
+    const allBuildingTypes = [...buildings, ...houseTypes];
+    const allRosters = [...workRosters, ...houseRosters];
+
+    // Generate buildings with AI, leveraging rosters to get room assignments
+    const insertedBuildings = await BuildingGenerator.generateBuildingsForLocale(
+      world_id,
+      localeData,
+      allBuildingTypes,
+      allRosters
+    );
+    localeData.buildings = insertedBuildings.map((b) => b._id);
+
+    // Build lookup: building type sequence aligns with insertedBuildings
+    const workBuildings = insertedBuildings.slice(0, buildings.length);
+    const houseBuildings = insertedBuildings.slice(buildings.length);
+
+    // Assign work/home and room locations based on room.character assignments
+    const roomAssignmentsByCharWork = new Map();
+    for (const b of workBuildings) {
+      for (const room of b.rooms || []) {
+        for (const cid of room.characters || []) {
+          roomAssignmentsByCharWork.set(String(cid), { building: b._id, room: room._id });
+        }
+      }
+    }
+    const roomAssignmentsByCharHome = new Map();
+    for (const b of houseBuildings) {
+      for (const room of b.rooms || []) {
+        for (const cid of room.characters || []) {
+          roomAssignmentsByCharHome.set(String(cid), { building: b._id, room: room._id });
+        }
+      }
+    }
+
+    // Update character home/work and locations
+    const workIdByChar = new Map();
+    for (const [idx, b] of workBuildings.entries()) {
+      for (const entry of allRosters[idx] || []) {
+        workIdByChar.set(entry.character_id, b._id);
+      }
+    }
+    const homeIdByChar = new Map();
+    for (let i = 0; i < houseBuildings.length; i++) {
+      const b = houseBuildings[i];
+      const roster = houseRosters[i] || [];
+      for (const entry of roster) {
+        homeIdByChar.set(entry.character_id, b._id);
+      }
+    }
+
+    for (const c of allCharacters) {
+      const id = String(c._id);
+      // Set work/home ids
+      if (workIdByChar.has(id)) c.work = workIdByChar.get(id);
+      if (homeIdByChar.has(id)) c.home = homeIdByChar.get(id);
+
+      // Determine where they are located: prefer work if exists, else home
+      const workAssign = roomAssignmentsByCharWork.get(id);
+      const homeAssign = roomAssignmentsByCharHome.get(id);
+      const chosen = workAssign || homeAssign || null;
+      c.location = {
+        locale: localeData._id,
+        building: chosen ? chosen.building : c.work || c.home || null,
+        room: chosen ? chosen.room : null,
+      };
+    }
+
+    // Rebuild locale character summaries after home/work assignments
+    localeData.characters = allCharacters.map((c) => ({
+      _id: c._id,
+      building: c.work || (c.location ? c.location.building : null) || c.home || null,
+      role: c.role,
+    }));
 
 
     // Insert all characters

@@ -1,4 +1,5 @@
 require("dotenv").config();
+const path = require("path");
 const express = require("express");
 const app = express();
 
@@ -8,6 +9,9 @@ const connectDB = require("./config/db");
 connectDB();
 
 app.use(express.json());
+
+// Serve static web assets from project ./web
+app.use(express.static(path.join(__dirname, "..", "web")));
 
 app.use("/chat", require("./routes/chat"));
 app.use("/world", require("./routes/world"));

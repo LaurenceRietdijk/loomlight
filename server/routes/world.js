@@ -3,6 +3,20 @@ const router = express.Router();
 const WorldDAL = require("../dal/worldDAL");
 const WorldGenerator = require("../generation/worldGenerator");
 const FactionGenerator = require("../generation/factionGenerator");
+const getDatabaseConnection = require("../config/worldDBs");
+
+/**
+ * List all worlds in the central database.
+ */
+router.get("/", async (req, res) => {
+  try {
+    const worlds = await WorldDAL.getAllWorlds();
+    res.status(200).json({ worlds });
+  } catch (error) {
+    console.error("Error listing worlds:", error);
+    res.status(500).json({ error: "Server Error" });
+  }
+});
 
 /**
  * Fetch an existing world from the database (no AI generation).
@@ -43,6 +57,30 @@ router.post("/generate", async (req, res) => {
     res.status(201).json({ message: "World generated", world: newWorld });
   } catch (error) {
     console.error("Error generating world:", error);
+    res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * Delete a specific world and drop its dedicated database.
+ */
+router.delete("/:world_id", async (req, res) => {
+  try {
+    const { world_id } = req.params;
+    if (!world_id) {
+      return res.status(400).json({ error: "Missing world_id" });
+    }
+
+    // Drop the per-world database
+    const worldDB = getDatabaseConnection(world_id);
+    await worldDB.dropDatabase();
+
+    // Remove world document from central database
+    await WorldDAL.deleteWorld(world_id);
+
+    res.status(200).json({ message: "World deleted", world_id });
+  } catch (error) {
+    console.error("Error deleting world:", error);
     res.status(500).json({ error: "Server Error" });
   }
 });

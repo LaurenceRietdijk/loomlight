@@ -48,7 +48,7 @@ class CharacterDAL {
   static async getCharactersByLocale(world_id, locale_id) {
     const db = getDatabaseConnection(world_id);
     const CharacterModel = db.model("Character", CharacterSchema);
-    return await CharacterModel.find({ locale: locale_id });
+    return await CharacterModel.find({ "location.locale": locale_id });
   }
 }
 

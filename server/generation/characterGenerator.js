@@ -15,12 +15,13 @@ class CharacterGenerator {
    * @returns {Promise<Object>} - The newly inserted character.
    */
   static async generateAndInsertCharacter(
+    world_id,
     locale_id,
-    buildingName,
+    building,
     buildingRole
   ) {
     console.log(
-      `Generating character for locale ${locale_id} in ${buildingName} as ${buildingRole}...`
+      `Generating character for locale ${locale_id} in ${building?.name || "Building"} as ${buildingRole}...`
     );
 
     // Fetch the locale for context
@@ -36,7 +37,7 @@ class CharacterGenerator {
     const localeDescription = locale.description || "No description available.";
 
     // Build the GPT prompt
-    const userPrompt = `Generate a character who works as a ${buildingRole} in the ${buildingName} of ${localeName}, a ${localeType.toLowerCase()}.
+    const userPrompt = `Generate a character who works as a ${buildingRole} in the ${building?.name || "building"} of ${localeName}, a ${localeType.toLowerCase()}.
 This is a medieval fantasy world.
 Locale description: ${localeDescription}.
 Give the character an immersive backstory and clear personality traits.`;
@@ -70,8 +71,20 @@ The character format is:
       temperature: 0.85,
     });
 
-    const raw = completion.choices[0].message.content;
-    const parsed = JSON.parse(raw);
+        const raw = completion.choices[0].message.content;
+    const parsed = (function(text){
+      function tryParseJSON(t){
+        if(!t) return null; const s=String(t).trim(); const cands=[s];
+        const fence = s.match(/```(?:json|JSON)?\s*([\s\S]*?)\s*```/); if(fence&&fence[1]) cands.push(fence[1].trim());
+        const fa=s.indexOf('['), fo=s.indexOf('{'); const fb=(fa===-1&&fo===-1)?-1:(fa===-1?fo:(fo===-1?fa:Math.min(fa,fo)));
+        if(fb!==-1) cands.push(s.slice(fb));
+        for(const c of cands){ try { return JSON.parse(c);} catch(_){} }
+        return null;
+      }
+      const p=tryParseJSON(text);
+      if(!p){ console.error('Failed to parse character JSON:', text); throw new Error('Invalid character JSON'); }
+      return p;
+    })(raw);
 
     let raceName = parsed.race;
     if (locale.primary_race) {
@@ -93,14 +106,15 @@ The character format is:
         ? parsed.gender
         : "unknown",
       faction: null,
-      locale: locale._id,
-      building: buildingName,
+      location: { locale: locale._id, building: building?._id || null, room: null },
+      home: null,
+      work: building?._id || null,
       role: buildingRole,
       status: "active",
       relationships: [],
     };
 
-    return await CharacterDAL.insertCharacter(characterData);
+    return await CharacterDAL.insertCharacter(world_id, characterData);
   }
 
   /**
@@ -115,14 +129,14 @@ The character format is:
   static async generateCharactersForBuilding(
     world_id,
     locale,
-    buildingName,
+    buildingType,
     primaryRace
   ) {
     console.log(
-      `Generating characters for building "${buildingName}" in locale "${locale.name}"...`
+      `Generating characters for building type "${buildingType}" in locale "${locale.name}"...`
     );
 
-    const prompt = `Generate 2 to 4 unique NPCs who work in the "${buildingName}" of the ${locale.type.toLowerCase()} "${
+    const prompt = `Generate 2 to 4 unique NPCs who work in a "${buildingType}" in the ${locale.type.toLowerCase()} "${
       locale.name
     }".
 
@@ -188,8 +202,9 @@ Return your answer as a valid JSON array with no extra text. Use this format:
       age: c.age || null,
       gender: allowedGenders.includes(c.gender) ? c.gender : "unknown",
       faction: null,
-      locale: locale._id,
-      building: buildingName,
+      location: { locale: locale._id, building: null, room: null },
+      home: null,
+      work: null,
       role: c.role,
       status: "active",
       relationships: [],
@@ -314,15 +329,35 @@ Return ONLY a JSON array with the same length as skeletons.`;
       temperature: 0.8,
     });
 
-    let fleshed;
-    try {
-      fleshed = JSON.parse(completion.choices[0].message.content);
-    } catch (e) {
+    // Robust JSON parsing: handle code fences and surrounding text
+    function tryParseJSON(text) {
+      if (!text) return null;
+      const candidates = [];
+      const t = String(text).trim();
+      candidates.push(t);
+      // Extract from code fences if present
+      const fence = t.match(/```(?:json|JSON)?\s*([\s\S]*?)\s*```/);
+      if (fence && fence[1]) candidates.push(fence[1].trim());
+      // Extract from first JSON-looking bracket
+      const firstArr = t.indexOf('[');
+      const firstObj = t.indexOf('{');
+      const firstBrace = (firstArr === -1 && firstObj === -1) ? -1 : (firstArr === -1 ? firstObj : (firstObj === -1 ? firstArr : Math.min(firstArr, firstObj)));
+      if (firstBrace !== -1) {
+        candidates.push(t.slice(firstBrace));
+      }
+      for (const c of candidates) {
+        try { return JSON.parse(c); } catch (_) {}
+      }
+      return null;
+    }
+
+    let fleshed = tryParseJSON(completion.choices[0].message.content);
+    if (!Array.isArray(fleshed)) {
       console.error(
-        "Failed to parse GPT children:",
+        "Failed to parse GPT children (raw):\n",
         completion.choices[0].message.content
       );
-      throw e;
+      throw new Error("Invalid JSON array from model for children generation");
     }
 
     // 3. Merge GPT data into skeleton docs
@@ -338,8 +373,9 @@ Return ONLY a JSON array with the same length as skeletons.`;
         gender: s.gender,
         age: s.age,
         faction: null,
-        locale: locale._id,
-        building: null,
+        location: { locale: locale._id, building: null, room: null },
+        home: null,
+        work: null,
         role: "child",
         status: "active",
         relationships: [],

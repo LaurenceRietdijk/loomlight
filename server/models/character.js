@@ -18,12 +18,13 @@ const CharacterSchema = new mongoose.Schema({
     ref: "Faction",
     default: null,
   },
-  locale: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "Locale",
-    default: null,
+  location: {
+    locale: { type: mongoose.Schema.Types.ObjectId, ref: "Locale", default: null },
+    building: { type: mongoose.Schema.Types.ObjectId, ref: "Building", default: null },
+    room: { type: mongoose.Schema.Types.ObjectId, default: null },
   },
-  building: { type: String, default: null }, // Name of the building in the locale
+  home: { type: mongoose.Schema.Types.ObjectId, ref: "Building", default: null },
+  work: { type: mongoose.Schema.Types.ObjectId, ref: "Building", default: null },
   role: { type: String, required: true },
   status: { type: String, default: "active" },
   relationships: [

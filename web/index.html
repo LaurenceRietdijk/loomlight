@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Loomlight Worlds</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Loomlight</h1>
+      <nav class="tabs">
+        <button class="tab-button active" data-tab="worlds">World Selection</button>
+        <button class="tab-button" data-tab="map">Map</button>
+        <button class="tab-button" data-tab="locale">Locale</button>
+        <button class="tab-button" data-tab="character" disabled>Character</button>
+      </nav>
+      <div class="controls">
+        <input id="api-key" type="password" placeholder="OpenAI API Key" />
+      </div>
+    </header>
+
+    <main>
+      <section id="tab-worlds" class="tab-panel active">
+        <div class="panel">
+          <h2>Select a World</h2>
+          <div class="world-actions" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="creator-input" type="text" placeholder="Creator name or ID" />
+            <button id="btn-generate-world">Generate World</button>
+          </div>
+          <div id="world-list" class="world-list"></div>
+          <div id="world-error" class="error"></div>
+        </div>
+      </section>
+
+      <section id="tab-map" class="tab-panel">
+        <div class="panel">
+          <div class="map-header">
+            <div>
+              <strong>World:</strong> <span id="current-world-name">—</span>
+            </div>
+            <div class="coords-legend">
+              Centered at (0,0); scroll to explore
+            </div>
+          </div>
+          <div id="map-container" class="map-container">
+            <div id="map-grid" class="map-grid"></div>
+          </div>
+          <div id="map-error" class="error"></div>
+        </div>
+      </section>
+
+      <section id="tab-locale" class="tab-panel">
+        <div class="panel">
+          <div id="locale-header" class="locale-header"></div>
+          <div class="locale-content">
+            <div class="locale-overview">
+              <div class="section-title">Overview</div>
+              <div id="locale-overview"></div>
+            </div>
+            <div class="locale-buildings">
+              <div class="section-title">Buildings</div>
+              <div id="locale-buildings"></div>
+            </div>
+            <div class="locale-characters">
+              <div class="section-title">Characters</div>
+              <div id="locale-characters" class="character-list"></div>
+            </div>
+          </div>
+          <div id="locale-error" class="error"></div>
+        </div>
+      </section>
+
+      <section id="tab-character" class="tab-panel">
+        <div class="panel">
+          <div id="character-header" class="character-header"></div>
+          <div id="character-body" class="character-body"></div>
+          <div class="system-prompt">
+            <div class="section-title">System Prompt</div>
+            <textarea id="system-prompt" readonly placeholder="System prompt will appear after you send a message..."></textarea>
+          </div>
+          <div class="dialogue">
+            <div id="dialogue-log" class="dialogue-log"></div>
+            <div class="dialogue-input">
+              <button id="btn-mic" title="Speak">🎤</button>
+              <textarea id="dialogue-text" placeholder="Speak or type your message..."></textarea>
+              <button id="btn-send" title="Send">Send</button>
+            </div>
+          </div>
+          <div id="character-error" class="error"></div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/prompt.js"></script>
+    <script src="/app.js"></script>
+  </body>
+  </html>
