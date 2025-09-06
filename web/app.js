@@ -6,6 +6,9 @@
     bounds: null,
     selectedCoords: null,
     selectedCharacter: null,
+    playerCharacters: [],
+    selectedPlayerCharacter: null,
+    quests: [],
   };
 
   // Tab wiring
@@ -15,11 +18,22 @@
     map: document.getElementById('tab-map'),
     locale: document.getElementById('tab-locale'),
     character: document.getElementById('tab-character'),
+    quests: document.getElementById('tab-quests'),
   };
   const characterTabButton = document.querySelector('.tab-button[data-tab="character"]');
+  const mapTabButton = document.querySelector('.tab-button[data-tab="map"]');
+  const localeTabButton = document.querySelector('.tab-button[data-tab="locale"]');
+  const questsTabButton = document.querySelector('.tab-button[data-tab="quests"]');
   function switchTab(key) {
     tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === key));
     Object.entries(panels).forEach(([k, el]) => el.classList.toggle('active', k === key));
+    // When navigating to character tab, refresh with full character payload
+    if (key === 'character') {
+      loadSelectedCharacterFull();
+    }
+    if (key === 'quests') {
+      loadAcceptedQuests();
+    }
   }
   document.querySelector('.tabs').addEventListener('click', (e) => {
     if (e.target.classList.contains('tab-button')) {
@@ -34,6 +48,17 @@
   const elWorldName = document.getElementById('current-world-name');
   const elCreatorInput = document.getElementById('creator-input');
   const btnGenerateWorld = document.getElementById('btn-generate-world');
+
+  // Player character UI
+  const elPCList = document.getElementById('pc-list');
+  const elPCErr = document.getElementById('pc-error');
+  const elPCNameInput = document.getElementById('pc-name-input');
+  const btnAddPC = document.getElementById('btn-add-pc');
+
+  // Quests UI
+  const elQuestsList = document.getElementById('quests-list');
+  const elQuestsErr = document.getElementById('quests-error');
+  const elToast = document.getElementById('toast');
 
   async function loadWorlds() {
     elWorldErr.textContent = '';
@@ -109,8 +134,132 @@
     elWorldName.textContent = world.name;
     state.selectedCharacter = null;
     if (characterTabButton) characterTabButton.setAttribute('disabled', 'true');
-    switchTab('map');
-    await loadLocales();
+    updateNavLocks();
+    if (state.selectedPlayerCharacter) {
+      try {
+        await ensureActivePCDoc(state.currentWorld._id, state.selectedPlayerCharacter._id);
+      } catch {}
+      switchTab('map');
+      await loadLocales();
+      connectEventStream();
+      await loadAcceptedQuests();
+    } else {
+      // Stay on worlds tab until a player character is selected
+      switchTab('worlds');
+      elWorldErr.textContent = 'Select a player character to continue.';
+    }
+  }
+
+  // Player characters
+  async function loadPlayerCharacters() {
+    elPCErr.textContent = '';
+    try {
+      const res = await fetch('/playerCharacter');
+      if (!res.ok) throw new Error('Failed to load player characters');
+      const data = await res.json();
+      state.playerCharacters = data.playerCharacters || [];
+      renderPlayerCharacters();
+    } catch (err) {
+      console.error(err);
+      elPCErr.textContent = 'Error loading player characters.';
+    }
+  }
+
+  function renderPlayerCharacters() {
+    if (!elPCList) return;
+    elPCList.innerHTML = '';
+    if (!state.playerCharacters.length) {
+      elPCList.innerHTML = '<div class="world-meta">No player characters yet. Add one above.</div>';
+      return;
+    }
+    state.playerCharacters.forEach(pc => {
+      const card = document.createElement('div');
+      card.className = 'world-card';
+      const isSelected = state.selectedPlayerCharacter && String(state.selectedPlayerCharacter._id) === String(pc._id);
+      card.innerHTML = `
+        <div class="world-title">${escapeHtml(pc.name)}</div>
+        <div class="world-meta">ID: ${escapeHtml(pc._id)}</div>
+        <div class="actions">
+          <button class="btn-delete" title="Delete">Delete</button>
+        </div>
+      `;
+      if (isSelected) card.style.outline = '2px solid var(--accent)';
+      card.addEventListener('click', () => selectPlayerCharacter(pc));
+      const btnDel = card.querySelector('.btn-delete');
+      btnDel.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = confirm(`Delete player character "${pc.name}"?`);
+        if (!ok) return;
+        try {
+          const res = await fetch(`/playerCharacter/${pc._id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete');
+          if (state.selectedPlayerCharacter && String(state.selectedPlayerCharacter._id) === String(pc._id)) {
+            state.selectedPlayerCharacter = null;
+            updateNavLocks();
+          }
+          await loadPlayerCharacters();
+        } catch (err) {
+          console.error(err);
+          elPCErr.textContent = 'Error deleting player character.';
+        }
+      });
+      elPCList.appendChild(card);
+    });
+  }
+
+  async function selectPlayerCharacter(pc) {
+    state.selectedPlayerCharacter = pc;
+    elPCErr.textContent = '';
+    renderPlayerCharacters();
+    updateNavLocks();
+    if (state.currentWorld) {
+      try { await ensureActivePCDoc(state.currentWorld._id, state.selectedPlayerCharacter._id); } catch {}
+      switchTab('map');
+      await loadLocales();
+      connectEventStream();
+      await loadAcceptedQuests();
+    }
+  }
+
+  if (btnAddPC) {
+    btnAddPC.addEventListener('click', async () => {
+      elPCErr.textContent = '';
+      const name = (elPCNameInput?.value || '').trim();
+      if (!name) { elPCErr.textContent = 'Please enter a name.'; return; }
+      try {
+        const res = await fetch('/playerCharacter', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        if (!res.ok) throw new Error('Failed to add player character');
+        elPCNameInput.value = '';
+        await loadPlayerCharacters();
+      } catch (err) {
+        console.error(err);
+        elPCErr.textContent = 'Error adding player character.';
+      }
+    });
+  }
+
+  function updateNavLocks() {
+    const ok = !!(state.currentWorld && state.selectedPlayerCharacter);
+    if (mapTabButton) mapTabButton.toggleAttribute('disabled', !ok);
+    if (localeTabButton) localeTabButton.toggleAttribute('disabled', !ok);
+    if (questsTabButton) questsTabButton.toggleAttribute('disabled', !ok);
+    // Character tab remains gated by in-world character selection.
+    // Additionally, if world+player not selected, force-disable it.
+    if (characterTabButton && !ok) characterTabButton.setAttribute('disabled', 'true');
+  }
+
+  async function ensureActivePCDoc(worldId, pcId) {
+    try {
+      await fetch('/activePlayerCharacter/enter', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ world_id: String(worldId), player_character_id: String(pcId) })
+      });
+    } catch (e) {
+      console.warn('ensureActivePCDoc failed', e);
+    }
   }
 
   // Map rendering
@@ -119,7 +268,7 @@
   const elMapErr = document.getElementById('map-error');
 
   async function loadLocales() {
-    if (!state.currentWorld) return;
+    if (!state.currentWorld || !state.selectedPlayerCharacter) return;
     elMapErr.textContent = '';
     elMapGrid.innerHTML = '';
     try {
@@ -132,6 +281,138 @@
     } catch (err) {
       console.error(err);
       elMapErr.textContent = 'Error loading locales.';
+    }
+  }
+
+  // Quest list and progress rendering
+  async function loadAcceptedQuests() {
+    if (!state.currentWorld || !state.selectedPlayerCharacter) return;
+    elQuestsErr.textContent = '';
+    elQuestsList.innerHTML = '';
+    try {
+      const params = new URLSearchParams({
+        world_id: String(state.currentWorld._id),
+        player_character_id: String(state.selectedPlayerCharacter._id),
+      });
+      const res = await fetch(`/quest/accepted?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to load quests');
+      const data = await res.json();
+      state.quests = Array.isArray(data.quests) ? data.quests : [];
+      renderQuests();
+    } catch (e) {
+      console.error(e);
+      elQuestsErr.textContent = 'Error loading quests.';
+    }
+  }
+
+  function renderQuests() {
+    if (!elQuestsList) return;
+    if (!state.quests || !state.quests.length) {
+      elQuestsList.innerHTML = '<div class="muted">No accepted quests yet.</div>';
+      return;
+    }
+    elQuestsList.innerHTML = state.quests.map(q => questItemHTML(q)).join('');
+  }
+
+  function questStatusLabel(q) {
+    // Map internal states to user-friendly labels
+    const s = String(q.state || '').toLowerCase();
+    if (s === 'acepted') return 'active';
+    if (s === 'completed') return 'complete';
+    if (s === 'avaliable') return 'available';
+    return s || 'unknown';
+  }
+
+  function questItemHTML(q) {
+    const title = escapeHtml(q.title || 'Untitled Quest');
+    const status = escapeHtml(questStatusLabel(q));
+    const rawType = String(q.questType || '').trim();
+    const typeLabel = escapeHtml(rawType || '');
+    const lowType = rawType.toLowerCase();
+    let progress = '';
+    if (lowType === 'clear') {
+      const rem = Number(q.enemiesRemaining || 0);
+      progress = `<div class="muted">${rem} enemies remaining</div>`;
+    } else {
+      // TODO: Placeholder for other quest types (Fetch, Deliver, Kill, Gather, Explore)
+      progress = '<div class="muted">Progress tracking coming soon...</div>';
+    }
+    const desc = escapeHtml(q.description || '');
+    return `
+      <details class="acc">
+        <summary>
+          <div class="acc-title">${title}</div>
+          <div class="acc-sub">${status} &middot; ${typeLabel}</div>
+        </summary>
+        <div class="acc-content">
+          <div class="muted" style="margin-bottom:6px;">${desc}</div>
+          ${progress}
+        </div>
+      </details>
+    `;
+  }
+
+  // Simple toast alert
+  let toastTimer = null;
+  function showToast(msg) {
+    if (!elToast) return;
+    elToast.textContent = msg;
+    elToast.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { elToast.style.display = 'none'; }, 3000);
+  }
+
+  // Event stream for instant quest updates
+  let evtSource = null;
+  function connectEventStream() {
+    if (evtSource) { try { evtSource.close(); } catch {} evtSource = null; }
+    if (!state.currentWorld || !state.selectedPlayerCharacter) return;
+    const params = new URLSearchParams({
+      world_id: String(state.currentWorld._id),
+      player_character_id: String(state.selectedPlayerCharacter._id),
+    });
+    const url = `/events?${params.toString()}`;
+    try {
+      evtSource = new EventSource(url);
+      evtSource.addEventListener('quest:progress', (ev) => {
+        try {
+          const payload = JSON.parse(ev.data || '{}');
+          onQuestProgress(payload);
+        } catch {}
+      });
+      evtSource.addEventListener('quest:state', (ev) => {
+        try {
+          const payload = JSON.parse(ev.data || '{}');
+          onQuestState(payload);
+        } catch {}
+      });
+      evtSource.onerror = () => {
+        // Allow browser to handle reconnection policy; optionally we could re-open later
+      };
+    } catch (e) {
+      console.warn('EventSource init failed', e);
+    }
+  }
+
+  function onQuestProgress(p) {
+    if (!p || !p.quest_id) return;
+    const idx = state.quests.findIndex(q => String(q._id) === String(p.quest_id));
+    if (idx >= 0 && p.questType === 'Clear' && p.data) {
+      state.quests[idx].enemiesRemaining = p.data.enemiesRemaining;
+      renderQuests();
+      showToast(`Quest updated: ${p.title || 'Quest'} – ${p.data.enemiesRemaining} remaining`);
+    }
+  }
+
+  function onQuestState(p) {
+    if (!p || !p.quest_id) return;
+    const idx = state.quests.findIndex(q => String(q._id) === String(p.quest_id));
+    if (idx >= 0) {
+      state.quests[idx].state = p.state || state.quests[idx].state;
+      renderQuests();
+      if (String(p.state).toLowerCase() === 'completed') {
+        showToast(`Quest completed: ${p.title || 'Quest'}`);
+      }
     }
   }
 
@@ -405,6 +686,16 @@
     'Dungeon',
   ];
 
+  // Quest types for character actions (mirror server/routes/quest.js)
+  const QUEST_TYPES = [
+    'Fetch',
+    'Deliver',
+    'Kill',
+    'Gather',
+    'Explore',
+    'Clear',
+  ];
+
   function renderGenerateLocaleUI(x, y) {
     elLocaleErr.textContent = '';
     elLocaleHeader.innerHTML = `<div class="locale-title">No locale at (${x}, ${y})</div>`;
@@ -458,6 +749,7 @@
   const elDialogueLog = document.getElementById('dialogue-log');
   const elDialogueText = document.getElementById('dialogue-text');
   const elSystemPrompt = document.getElementById('system-prompt');
+  const elCommandsHistory = document.getElementById('commands-history');
   const btnMic = document.getElementById('btn-mic');
   const btnSend = document.getElementById('btn-send');
 
@@ -475,6 +767,55 @@
     if (!elDialogueLog) return;
     elDialogueLog.innerHTML = conv.map(m => `<div class="bubble ${m.role}">${escapeHtml(m.content)}<small>${new Date(m.ts||Date.now()).toLocaleTimeString()}</small></div>`).join('');
     elDialogueLog.scrollTop = elDialogueLog.scrollHeight;
+  }
+
+  // Commands history helpers (persist per-character)
+  function cmdsKey(c) { return c && c._id ? `cmds_${c._id}` : null; }
+  function loadCmds(c) {
+    const key = cmdsKey(c); if (!key) return [];
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+  }
+  function saveCmds(c, list) {
+    const key = cmdsKey(c); if (!key) return;
+    localStorage.setItem(key, JSON.stringify((Array.isArray(list)? list: []).slice(-200)));
+  }
+  function renderCmds(list) {
+    if (!elCommandsHistory) return;
+    try {
+      elCommandsHistory.value = (Array.isArray(list) ? list : []).map(cmd => {
+        try { return JSON.stringify(cmd); } catch { return String(cmd); }
+      }).join('\n');
+    } catch {}
+  }
+
+  // Load the currently selected character from the server with full population
+  async function loadSelectedCharacterFull() {
+    try {
+      if (!state.currentWorld || !state.selectedCharacter) return;
+      const cid = state.selectedCharacter && state.selectedCharacter._id
+        ? String(state.selectedCharacter._id)
+        : String(state.selectedCharacter);
+      if (!cid) return;
+      if (elCharacterBody) {
+        // Non-blocking loading hint
+        elCharacterBody.innerHTML = '<div class="muted">Loading character…</div>';
+      }
+      const params = new URLSearchParams({
+        world_id: state.currentWorld._id,
+        character_id: cid,
+      });
+      const res = await fetch(`/character/full?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to load character');
+      const data = await res.json();
+      const full = data && data.character ? data.character : null;
+      if (full && full._id) {
+        state.selectedCharacter = full;
+        renderCharacter(full);
+      }
+    } catch (err) {
+      console.error(err);
+      if (elCharacterErr) elCharacterErr.textContent = 'Error loading character.';
+    }
   }
 
   // Speech synthesis helper
@@ -504,7 +845,12 @@
     const apiKey = getAPIKey();
     if (!apiKey) throw new Error('Missing OpenAI API key.');
     const messages = (window.buildCharacterMessages
-      ? window.buildCharacterMessages(character, history, { knownCharacters: (state.currentLocale?.characters || []), knownLocale: state.currentLocale || null })
+      ? window.buildCharacterMessages(character, history, {
+          knownCharacters: (state.currentLocale?.characters || []),
+          knownLocale: state.currentLocale || null,
+          worldId: state.currentWorld?._id,
+          characterId: character && character._id ? String(character._id) : '',
+        })
       : [{ role: 'system', content: 'Missing prompt helper. Proceeding minimal.' }]
     );
 
@@ -528,7 +874,30 @@
       throw new Error(`OpenAI error: ${res.status} ${errText}`);
     }
     const data = await res.json();
-    return data.choices?.[0]?.message?.content || '';
+    const raw = data.choices?.[0]?.message?.content || '';
+    // Robust JSON parse: support plain JSON, fenced code, or stray text
+    function tryParseJSON(s) {
+      if (!s) return null;
+      let t = String(s).trim();
+      // Strip common code fences
+      t = t.replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();
+      try { return JSON.parse(t); } catch {}
+      // Fallback: attempt to extract first JSON object
+      const first = t.indexOf('{'); const last = t.lastIndexOf('}');
+      if (first !== -1 && last !== -1 && last > first) {
+        const sub = t.slice(first, last + 1);
+        try { return JSON.parse(sub); } catch {}
+      }
+      return null;
+    }
+    const parsed = tryParseJSON(raw);
+    if (parsed && typeof parsed === 'object') {
+      const text = typeof parsed.text === 'string' ? parsed.text : String(raw).trim();
+      const commands = Array.isArray(parsed.commands) ? parsed.commands : [];
+      return { text, commands };
+    }
+    // Fallback: treat everything as plain text
+    return { text: String(raw).trim(), commands: [] };
   }
 
   function setupDialogueHandlers(c) {
@@ -565,10 +934,20 @@
       conv.push({ role: 'user', content: text, ts: Date.now() });
       renderConv(conv); saveConv(c, conv); elDialogueText.value = '';
       try {
-        const reply = await callOpenAICharacter(c, conv, text);
-        conv.push({ role: 'assistant', content: reply, ts: Date.now() });
+        const result = await callOpenAICharacter(c, conv, text);
+        const replyText = result?.text || '';
+        const commands = Array.isArray(result?.commands) ? result.commands : [];
+        // Push only text to conversation history
+        conv.push({ role: 'assistant', content: replyText, ts: Date.now() });
         renderConv(conv); saveConv(c, conv);
-        speak(reply);
+        // Update commands history box
+        const existing = loadCmds(c);
+        const updated = existing.concat(commands);
+        saveCmds(c, updated);
+        renderCmds(updated);
+        // Execute commands via framework (no-op handlers for now)
+        try { window.CommandFramework && window.CommandFramework.execute(commands, { world: state.currentWorld, character: c, locale: state.currentLocale, playerCharacter: state.selectedPlayerCharacter }); } catch {}
+        speak(replyText);
       } catch (e) {
         console.error(e);
         conv.push({ role: 'assistant', content: '(No response due to an error.)', ts: Date.now() });
@@ -600,11 +979,16 @@
     if (c.age != null) pills.push(`<span class="pill">Age: ${String(c.age)}</span>`);
     if (c.race) pills.push(`<span class="pill">Race: ${escapeHtml(c.race)}</span>`);
 
+    const actionsHtml = c.status === 'dead'
+      ? '<span class="muted">This character is dead.</span>'
+      : '<button id="btn-kill-character" class="btn-delete" title="Mark as dead">Kill</button>';
     elCharacterHeader.innerHTML = `
       <div class="character-title">${titleLine}</div>
       <div>${pills.join(' ')}</div>
+      <div class="actions">${actionsHtml}</div>
     `;
 
+    const questOptions = QUEST_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
     elCharacterBody.innerHTML = `\n      
       <div class="card">
         <h4>Description</h4>
@@ -614,18 +998,110 @@
         <h4>Personality</h4>
         <div class="muted">${escapeHtml(c.personality || 'No personality data')}</div>
       </div>
+      <div class="card">
+        <h4>Quests</h4>
+        <div class="kv">
+          <div class="key">Quest Type</div>
+          <div>
+            <select id="quest-type-select">${questOptions}</select>
+            <button id="btn-add-quest" style="margin-left:8px;">Add Quest</button>
+          </div>
+        </div>
+        <div id="quest-status" class="muted" style="margin-top:6px;"></div>
+      </div>
     `;
     const conv = loadConv(c);
     renderConv(conv);
+    // Load command history for this character
+    const cmds = loadCmds(c);
+    renderCmds(cmds);
     // Optionally show current system prompt immediately for transparency
     try {
       if (elSystemPrompt && window.buildCharacterMessages) {
-        const msgs = window.buildCharacterMessages(c, conv, { knownCharacters: (state.currentLocale?.characters || []), knownLocale: state.currentLocale || null });
+        const msgs = window.buildCharacterMessages(c, conv, {
+          knownCharacters: (state.currentLocale?.characters || []),
+          knownLocale: state.currentLocale || null,
+          worldId: state.currentWorld?._id,
+          characterId: c && c._id ? String(c._id) : '',
+        });
         const sys = msgs.find(m => m.role === 'system');
         elSystemPrompt.value = sys?.content || '';
       }
     } catch {}
     setupDialogueHandlers(c);
+
+    // Wire quest add action
+    const btnAddQuest = document.getElementById('btn-add-quest');
+    const selQuestType = document.getElementById('quest-type-select');
+    const elQuestStatus = document.getElementById('quest-status');
+    if (btnAddQuest && selQuestType) {
+      btnAddQuest.onclick = async () => {
+        elCharacterErr.textContent = '';
+        elQuestStatus.textContent = '';
+        btnAddQuest.disabled = true; btnAddQuest.textContent = 'Adding...';
+        try {
+          const res = await fetch('/quest/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              world_id: state.currentWorld?._id,
+              character_id: String(c._id),
+              type: selQuestType.value,
+            }),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || 'Failed to add quest');
+          }
+          const data = await res.json();
+          const label = data?.quest?.title || data?.type || selQuestType.value;
+          elQuestStatus.textContent = `Quest added: ${label}`;
+        } catch (e) {
+          console.error(e);
+          elCharacterErr.textContent = 'Error adding quest.';
+        } finally {
+          btnAddQuest.disabled = false; btnAddQuest.textContent = 'Add Quest';
+        }
+      };
+    }
+
+    // Wire up Kill button if character is not already dead
+    const btnKill = document.getElementById('btn-kill-character');
+    if (btnKill) {
+      btnKill.onclick = async () => {
+        const ok = confirm(`Kill ${c.name || 'this character'}? This sets status to 'dead'.`);
+        if (!ok) return;
+        btnKill.disabled = true; btnKill.textContent = 'Killing…';
+        try {
+          const res = await fetch('/character/kill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              world_id: state.currentWorld?._id,
+              character_id: String(c._id),
+            }),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || 'Failed to kill character');
+          }
+          const data = await res.json();
+          const updated = data?.character || null;
+          if (updated) {
+            state.selectedCharacter = updated;
+            renderCharacter(updated);
+          } else {
+            // fallback: refresh from server
+            await loadSelectedCharacterFull();
+          }
+        } catch (e) {
+          console.error(e);
+          elCharacterErr.textContent = 'Error setting character status to dead.';
+        } finally {
+          // No need to re-enable, renderCharacter will rebuild UI
+        }
+      };
+    }
   }
 
   // Render helpers
@@ -724,5 +1200,9 @@
   }
 
   // Init
+  updateNavLocks();
   loadWorlds();
+  loadPlayerCharacters();
+  // If both world and player are already set (e.g., hot reload), try to connect stream
+  connectEventStream();
 })();

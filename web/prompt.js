@@ -7,9 +7,11 @@
   function stripIds(obj) {
     if (obj == null || typeof obj !== 'object') return obj;
     if (Array.isArray(obj)) return obj.map(stripIds);
+    // Detect quest-like documents so we preserve their _id for app commands
+    const isQuestDoc = typeof obj.questType === 'string' || typeof obj.type === 'string';
     const out = {};
     for (const k of Object.keys(obj)) {
-      if (k === '_id' || /Id$/.test(k) || k === 'id') continue;
+      if (!isQuestDoc && (k === '_id' || /Id$/.test(k) || k === 'id')) continue;
       out[k] = stripIds(obj[k]);
     }
     return out;
@@ -54,16 +56,16 @@
     // Replace location ids with embedded name/description docs
     try {
       const loc = c.location || {};
-      const localeId = loc && loc.locale ? String(loc.locale) : '';
-      const buildingId = loc && loc.building ? String(loc.building) : '';
-      const roomId = loc && loc.room ? String(loc.room) : '';
+      const hasObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
 
-      // Resolve locale
+      // Locale: handle populated doc or raw id
       let localeDoc = null;
-      if (knownLocale && String(knownLocale._id || '') && localeId && String(knownLocale._id) === localeId) {
+      if (hasObj(loc.locale)) {
+        localeDoc = loc.locale;
+      } else if (loc.locale && knownLocale && String(knownLocale._id || '') === String(loc.locale)) {
         localeDoc = knownLocale;
       }
-      if (localeId) {
+      if (loc.locale) {
         c.location = c.location || {};
         if (localeDoc) {
           c.location.locale = { name: String(localeDoc.name || 'Unknown'), description: String(localeDoc.description || '') };
@@ -72,12 +74,14 @@
         }
       }
 
-      // Resolve building within known locale
+      // Building: handle populated doc or resolve within known locale
       let buildingDoc = null;
-      if (buildingId && knownLocale && Array.isArray(knownLocale.buildings)) {
-        buildingDoc = knownLocale.buildings.find(b => String(b && b._id || '') === buildingId) || null;
+      if (hasObj(loc.building)) {
+        buildingDoc = loc.building;
+      } else if (loc.building && knownLocale && Array.isArray(knownLocale.buildings)) {
+        buildingDoc = knownLocale.buildings.find(b => String(b && b._id || '') === String(loc.building)) || null;
       }
-      if (buildingId) {
+      if (loc.building) {
         c.location = c.location || {};
         if (buildingDoc) {
           c.location.building = { name: String(buildingDoc.name || 'Unknown'), description: String(buildingDoc.description || '') };
@@ -86,12 +90,14 @@
         }
       }
 
-      // Resolve room within building
+      // Room: always an ObjectId within building.rooms; also handle if it arrives populated (rare)
       let roomDoc = null;
-      if (roomId && buildingDoc && Array.isArray(buildingDoc.rooms)) {
-        roomDoc = buildingDoc.rooms.find(r => String(r && r._id || '') === roomId) || null;
+      if (hasObj(loc.room)) {
+        roomDoc = loc.room;
+      } else if (loc.room && buildingDoc && Array.isArray(buildingDoc.rooms)) {
+        roomDoc = buildingDoc.rooms.find(r => String(r && r._id || '') === String(loc.room)) || null;
       }
-      if (roomId) {
+      if (loc.room) {
         c.location = c.location || {};
         if (roomDoc) {
           c.location.room = { name: String(roomDoc.name || 'Unknown'), description: String(roomDoc.description || '') };
@@ -101,19 +107,87 @@
       }
     } catch {}
 
-    // Remove ids across doc
+    // Compact quest references: keep only quest_id, title, description
+    try {
+      if (Array.isArray(c.quests)) {
+        c.quests = c.quests.map((q) => ({
+          quest_id: String(q && (q._id || q.id) || ''),
+          title: String((q && (q.title || q.name)) || ''),
+          description: String((q && q.description) || ''),
+        })).filter(q => q.quest_id || q.title || q.description);
+      }
+    } catch {}
+
+    // Remove ids across doc (quest_id is preserved by name)
     return stripIds(c);
+  }
+
+  function sanitizeQuestForPrompt(quest) {
+    // For a quest document, keep top-level _id and human-readable fields; strip nested ids
+    try {
+      const q = deepClone(quest);
+      return stripIds(q);
+    } catch { return quest; }
   }
 
   function buildCharacterMessages(character, history, options) {
     const clean = sanitizeCharacterForPrompt(character, options);
+
+    // Resolve any active chat context documents (e.g., quest under discussion)
+    const worldId = options && options.worldId ? String(options.worldId) : '';
+    const characterId = options && options.characterId ? String(options.characterId) : '';
+    let activeQuestDoc = null;
+    try {
+      if (worldId && characterId && window.ChatContext && typeof window.ChatContext.get === 'function') {
+        const ctx = window.ChatContext.get(worldId, characterId) || {};
+        if (ctx.quest) activeQuestDoc = sanitizeQuestForPrompt(ctx.quest);
+      }
+    } catch {}
+
     const guidelines = [
       'You are roleplaying as the following character. Stay in character, respond concisely and naturally.',
       'Do not reveal that you are an AI.',
-      'Keep responses grounded in the character\'s knowledge and context.',
-      'If asked about world details, rely on what\'s in the document or reasonable in-universe assumptions.'
+      'Use the additional CONTEXT DOCUMENTS below when present (e.g., an active quest) to ground your replies.',
+      'If asked about world details, rely on what\'s in the documents or reasonable in-universe assumptions.',
+      '',
+      'Output format policy (STRICT):',
+      '- Reply ONLY with a single line of valid JSON (no backticks, no commentary, no prefixes).',
+      '- Shape must be: { "text": string, "commands": array }',
+      '- The "text" is the character\'s spoken reply.',
+      '- The "commands" is an array of command objects describing side effects.',
+      '- Allowed quest-related actions:',
+      '  - "QUEST_MENTIONED": you discussed or offered a quest; include quest_id when referencing a specific quest.',
+      '  - "QUEST_ACCEPTED": ONLY after the user explicitly confirms acceptance (e.g., "I accept", "Yes, I\'ll take it").',
+      '  - "QUEST_UNFLAG": when the user indicates to stop discussing the quest or topic; clears quest context.',
+      '- Do NOT emit "QUEST_ACCEPTED" just because the user mentions quests. Offer and discuss first; prefer "QUEST_MENTIONED" until clear confirmation.',
+      '- If there are no commands, set "commands": [].',
+      '- Never include markdown code fences, XML, or extra fields not asked for.'
     ].join('\n');
-    const system = `${guidelines}\n\nCHARACTER DOCUMENT (JSON):\n${JSON.stringify(clean, null, 2)}`;
+    const exampleMention = {
+      text: 'There\'s a task: clear the nearby camp east of town. Are you interested?',
+      commands: [ { action: 'QUEST_MENTIONED', quest_id: '68b3f7b73ecf80439bbd740b' } ]
+    };
+    const exampleAccept = {
+      text: 'Excellent. Meet me at dawn; I\'ll mark the spot on your map.',
+      commands: [ { action: 'QUEST_ACCEPTED', quest_id: '68b3f7b73ecf80439bbd740b' } ]
+    };
+
+    const parts = [
+      guidelines,
+      '',
+      'Examples:',
+      JSON.stringify(exampleMention),
+      JSON.stringify(exampleAccept),
+      '',
+      'CHARACTER DOCUMENT (JSON):',
+      JSON.stringify(clean, null, 2),
+    ];
+
+    if (activeQuestDoc) {
+      parts.push('', 'CONTEXT DOCUMENT: QUEST (JSON):', JSON.stringify(activeQuestDoc, null, 2));
+    }
+
+    const system = parts.join('\n');
 
     const msgs = [{ role: 'system', content: system }];
     if (Array.isArray(history)) {

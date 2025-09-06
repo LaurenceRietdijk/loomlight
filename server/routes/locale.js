@@ -67,7 +67,7 @@ router.get("/full", async (req, res) => {
  */
 router.post("/generate", async (req, res) => {
   try {
-    const { world_id, x, y, locale_type } = req.body;
+    const { world_id, x, y, locale_type, primary_race } = req.body;
     if (!world_id || x === undefined || y === undefined) {
       return res.status(400).json({ error: "Missing world_id or coordinates" });
     }
@@ -77,7 +77,8 @@ router.post("/generate", async (req, res) => {
       world_id,
       x,
       y,
-      locale_type
+      locale_type,
+      primary_race || null
     );
     res.status(201).json({ message: "Locale generated", locale: newLocale });
   } catch (error) {

@@ -1,0 +1,400 @@
+  const btnMic = document.getElementById('btn-mic');
+  const btnSend = document.getElementById('btn-send');
+
+  // Conversation storage helpers (persist per-character)
+  function charKey(c) { return c && c._id ? `conv_${c._id}` : null; }
+  function loadConv(c) {
+    const key = charKey(c); if (!key) return [];
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+  }
+  function saveConv(c, conv) {
+    const key = charKey(c); if (!key) return;
+    localStorage.setItem(key, JSON.stringify(conv.slice(-50)));
+  }
+  function renderConv(conv) {
+    if (!elDialogueLog) return;
+    elDialogueLog.innerHTML = conv.map(m => `<div class="bubble ${m.role}">${escapeHtml(m.content)}<small>${new Date(m.ts||Date.now()).toLocaleTimeString()}</small></div>`).join('');
+    elDialogueLog.scrollTop = elDialogueLog.scrollHeight;
+  }
+
+  // Commands history helpers (persist per-character)
+  function cmdsKey(c) { return c && c._id ? `cmds_${c._id}` : null; }
+  function loadCmds(c) {
+    const key = cmdsKey(c); if (!key) return [];
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; }
+  }
+  function saveCmds(c, list) {
+    const key = cmdsKey(c); if (!key) return;
+    localStorage.setItem(key, JSON.stringify((Array.isArray(list)? list: []).slice(-200)));
+  }
+  function renderCmds(list) {
+    if (!elCommandsHistory) return;
+    try {
+      elCommandsHistory.value = (Array.isArray(list) ? list : []).map(cmd => {
+        try { return JSON.stringify(cmd); } catch { return String(cmd); }
+      }).join('\n');
+    } catch {}
+  }
+
+  // Load the currently selected character from the server with full population
+  async function loadSelectedCharacterFull() {
+    try {
+      if (!state.currentWorld || !state.selectedCharacter) return;
+      const cid = state.selectedCharacter && state.selectedCharacter._id
+        ? String(state.selectedCharacter._id)
+        : String(state.selectedCharacter);
+      if (!cid) return;
+      if (elCharacterBody) {
+        // Non-blocking loading hint
+        elCharacterBody.innerHTML = '<div class="muted">Loading character…</div>';
+      }
+      const params = new URLSearchParams({
+        world_id: state.currentWorld._id,
+        character_id: cid,
+      });
+      const res = await fetch(`/character/full?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to load character');
+      const data = await res.json();
+      const full = data && data.character ? data.character : null;
+      if (full && full._id) {
+        state.selectedCharacter = full;
+        renderCharacter(full);
+      }
+    } catch (err) {
+      console.error(err);
+      if (elCharacterErr) elCharacterErr.textContent = 'Error loading character.';
+    }
+  }
+
+  // Speech synthesis helper
+  function speak(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0; u.lang = 'en-US';
+    window.speechSynthesis.speak(u);
+  }
+
+  // Dialogue handlers (ASR + send)
+  let recognition = null; let recognizing = false;
+  function getAPIKey() {
+    return localStorage.getItem('openai_api_key') || '';
+  }
+  function setAPIKey(v) {
+    localStorage.setItem('openai_api_key', v || '');
+  }
+  if (document.getElementById('api-key')) {
+    const keyInput = document.getElementById('api-key');
+    keyInput.value = getAPIKey();
+    keyInput.addEventListener('change', () => setAPIKey(keyInput.value.trim()));
+  }
+
+  async function callOpenAICharacter(character, history, user) {
+    const apiKey = getAPIKey();
+    if (!apiKey) throw new Error('Missing OpenAI API key.');
+    const messages = (window.buildCharacterMessages
+      ? window.buildCharacterMessages(character, history, { knownCharacters: (state.currentLocale?.characters || []), knownLocale: state.currentLocale || null })
+      : [{ role: 'system', content: 'Missing prompt helper. Proceeding minimal.' }]
+    );
+
+    // Expose system message in dedicated box
+    if (elSystemPrompt) {
+      const sys = messages.find(m => m.role === 'system');
+      elSystemPrompt.value = sys?.content || '';
+    }
+    messages.push({ role: 'user', content: String(user) });
+
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({ model: 'gpt-4o-mini', messages, temperature: 0.8 }),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenAI error: ${res.status} ${errText}`);
+    }
+    const data = await res.json();
+    const raw = data.choices?.[0]?.message?.content || '';
+    // Robust JSON parse: support plain JSON, fenced code, or stray text
+    function tryParseJSON(s) {
+      if (!s) return null;
+      let t = String(s).trim();
+      // Strip common code fences
+      t = t.replace(/^```(?:json)?/i, '').replace(/```$/,'').trim();
+      try { return JSON.parse(t); } catch {}
+      // Fallback: attempt to extract first JSON object
+      const first = t.indexOf('{'); const last = t.lastIndexOf('}');
+      if (first !== -1 && last !== -1 && last > first) {
+        const sub = t.slice(first, last + 1);
+        try { return JSON.parse(sub); } catch {}
+      }
+      return null;
+    }
+    const parsed = tryParseJSON(raw);
+    if (parsed && typeof parsed === 'object') {
+      const text = typeof parsed.text === 'string' ? parsed.text : String(raw).trim();
+      const commands = Array.isArray(parsed.commands) ? parsed.commands : [];
+      return { text, commands };
+    }
+    // Fallback: treat everything as plain text
+    return { text: String(raw).trim(), commands: [] };
+  }
+
+  function setupDialogueHandlers(c) {
+    if (!btnMic || !btnSend || !elDialogueText) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SR && !recognition) {
+      recognition = new SR();
+      recognition.lang = 'en-US';
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (e) => {
+        let final = '';
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const tr = e.results[i][0].transcript;
+          if (e.results[i].isFinal) final += tr; else elDialogueText.value = tr;
+        }
+        if (final) elDialogueText.value = final;
+      };
+      recognition.onend = () => { recognizing = false; btnMic.classList.remove('recording'); };
+      recognition.onerror = () => { recognizing = false; btnMic.classList.remove('recording'); };
+    }
+
+    btnMic.onclick = () => {
+      if (!recognition) { alert('Speech recognition not supported in this browser.'); return; }
+      if (recognizing) { recognition.stop(); recognizing = false; btnMic.classList.remove('recording'); return; }
+      elDialogueText.value = '';
+      recognition.start(); recognizing = true; btnMic.classList.add('recording');
+    };
+
+    btnSend.onclick = async () => {
+      const text = (elDialogueText.value || '').trim();
+      if (!text) return;
+      const conv = loadConv(c);
+      conv.push({ role: 'user', content: text, ts: Date.now() });
+      renderConv(conv); saveConv(c, conv); elDialogueText.value = '';
+      try {
+        const result = await callOpenAICharacter(c, conv, text);
+        const replyText = result?.text || '';
+        const commands = Array.isArray(result?.commands) ? result.commands : [];
+        // Push only text to conversation history
+        conv.push({ role: 'assistant', content: replyText, ts: Date.now() });
+        renderConv(conv); saveConv(c, conv);
+        // Update commands history box
+        const existing = loadCmds(c);
+        const updated = existing.concat(commands);
+        saveCmds(c, updated);
+        renderCmds(updated);
+        // Execute commands via framework (no-op handlers for now)
+        try { window.CommandFramework && window.CommandFramework.execute(commands, { world: state.currentWorld, character: c, locale: state.currentLocale }); } catch {}
+        speak(replyText);
+      } catch (e) {
+        console.error(e);
+        conv.push({ role: 'assistant', content: '(No response due to an error.)', ts: Date.now() });
+        renderConv(conv); saveConv(c, conv);
+      }
+    };
+  }
+
+  function onCharacterClick(cdoc) {
+    state.selectedCharacter = cdoc;
+    if (characterTabButton) characterTabButton.removeAttribute('disabled');
+    renderCharacter(cdoc);
+    switchTab('character');
+  }
+
+  function renderCharacter(c) {
+    if (!c) {
+      elCharacterHeader.innerHTML = '';
+      elCharacterBody.innerHTML = '';
+      elCharacterErr.textContent = 'No character selected.';
+      return;
+    }
+    elCharacterErr.textContent = '';
+    const titleLine = `${escapeHtml(c.name || 'Unknown')}${c.title ? ' - ' + escapeHtml(c.title) : ''}`;
+    const pills = [];
+    if (c.role) pills.push(`<span class="pill">Role: ${escapeHtml(c.role)}</span>`);
+    if (c.status) pills.push(`<span class="pill">Status: ${escapeHtml(c.status)}</span>`);
+    if (c.gender) pills.push(`<span class="pill">Gender: ${escapeHtml(c.gender)}</span>`);
+    if (c.age != null) pills.push(`<span class="pill">Age: ${String(c.age)}</span>`);
+    if (c.race) pills.push(`<span class="pill">Race: ${escapeHtml(c.race)}</span>`);
+
+    elCharacterHeader.innerHTML = `
+      <div class="character-title">${titleLine}</div>
+      <div>${pills.join(' ')}</div>
+    `;
+
+    const questOptions = QUEST_TYPES.map(t => `<option value="${t}">${t}</option>`).join('');
+    elCharacterBody.innerHTML = `\n      
+      <div class="card">
+        <h4>Description</h4>
+        <div class="muted">${escapeHtml(c.description || 'No description')}</div>
+      </div>
+      <div class="card">
+        <h4>Personality</h4>
+        <div class="muted">${escapeHtml(c.personality || 'No personality data')}</div>
+      </div>
+      <div class="card">
+        <h4>Quests</h4>
+        <div class="kv">
+          <div class="key">Quest Type</div>
+          <div>
+            <select id="quest-type-select">${questOptions}</select>
+            <button id="btn-add-quest" style="margin-left:8px;">Add Quest</button>
+          </div>
+        </div>
+        <div id="quest-status" class="muted" style="margin-top:6px;"></div>
+      </div>
+    `;
+    const conv = loadConv(c);
+    renderConv(conv);
+    // Load command history for this character
+    const cmds = loadCmds(c);
+    renderCmds(cmds);
+    // Optionally show current system prompt immediately for transparency
+    try {
+      if (elSystemPrompt && window.buildCharacterMessages) {
+        const msgs = window.buildCharacterMessages(c, conv, { knownCharacters: (state.currentLocale?.characters || []), knownLocale: state.currentLocale || null });
+        const sys = msgs.find(m => m.role === 'system');
+        elSystemPrompt.value = sys?.content || '';
+      }
+    } catch {}
+    setupDialogueHandlers(c);
+
+    // Wire quest add action
+    const btnAddQuest = document.getElementById('btn-add-quest');
+    const selQuestType = document.getElementById('quest-type-select');
+    const elQuestStatus = document.getElementById('quest-status');
+    if (btnAddQuest && selQuestType) {
+      btnAddQuest.onclick = async () => {
+        elCharacterErr.textContent = '';
+        elQuestStatus.textContent = '';
+        btnAddQuest.disabled = true; btnAddQuest.textContent = 'Adding...';
+        try {
+          const res = await fetch('/quest/generate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              world_id: state.currentWorld?._id,
+              character_id: String(c._id),
+              type: selQuestType.value,
+            }),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || 'Failed to add quest');
+          }
+          const data = await res.json();
+          const label = data?.quest?.title || data?.type || selQuestType.value;
+          elQuestStatus.textContent = `Quest added: ${label}`;
+        } catch (e) {
+          console.error(e);
+          elCharacterErr.textContent = 'Error adding quest.';
+        } finally {
+          btnAddQuest.disabled = false; btnAddQuest.textContent = 'Add Quest';
+        }
+      };
+    }
+  }
+
+  // Render helpers
+  function renderRoomsHTML(rooms) {
+    if (!rooms || !rooms.length) return '<span class="muted">None</span>';
+    return rooms.map(r => `
+      <div class="card" style="margin-bottom:8px;">
+        <div class="section-title">${escapeHtml(r.name || 'Room')}</div>
+        <div class="muted" style="margin-bottom:6px;">${escapeHtml(r.description || '')}</div>
+        ${renderContainersHTML(r.containers || [])}
+        <div class="acc-section" style="margin-top:8px;">
+          <div class="section-title">Characters</div>
+          <div class="character-list room-characters" data-room="${r._id}"></div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderContainersHTML(containers) {
+    if (!containers || !containers.length) return '';
+    return `
+      <table class="table">
+        <thead><tr><th>Container</th><th>Type</th><th>Items</th></tr></thead>
+        <tbody>
+          ${containers.map(c => `
+            <tr>
+              <td>${escapeHtml(c.name || '')}</td>
+              <td>${escapeHtml(c.type || '')}</td>
+              <td>${Array.isArray(c.items) && c.items.length ? c.items.map(i => escapeHtml(i.name || 'Item')).join(', ') : '<span class="muted">None</span>'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  function characterCardHTML(c) {
+    const role = c.role ? ', ' + escapeHtml(c.role) : '';
+    return `
+      <div class="character-card">
+        <div class="character-name">${escapeHtml(c.name || 'Unknown')}</div>
+        <div class="character-sub">${escapeHtml(c.race || '')}${role}</div>
+      </div>
+    `;
+  }
+
+  function htmlToElement(html) {
+    const template = document.createElement('template');
+    template.innerHTML = html.trim();
+    return template.content.firstChild;
+  }
+
+  // Local game-state overlay (per world)
+  function worldStateKey(worldId) { return worldId ? `world_state_${worldId}` : null; }
+  function getWorldState(worldId) {
+    const key = worldStateKey(worldId); if (!key) return {};
+    try { return JSON.parse(localStorage.getItem(key) || '{}'); } catch { return {}; }
+  }
+  function setWorldState(worldId, obj) {
+    const key = worldStateKey(worldId); if (!key) return;
+    localStorage.setItem(key, JSON.stringify(obj || {}));
+  }
+  function getLocaleOverlay(worldId, x, y) {
+    const st = getWorldState(worldId);
+    const locKey = `${x},${y}`;
+    return (st.locales && st.locales[locKey]) || null;
+  }
+  function markLocaleVisited(worldId, x, y) {
+    const st = getWorldState(worldId);
+    const locKey = `${x},${y}`;
+    st.locales = st.locales || {};
+    st.locales[locKey] = Object.assign({ visited: true, lastViewed: Date.now() }, st.locales[locKey]);
+    setWorldState(worldId, st);
+  }
+  function getCharacterState(worldId, charId) {
+    const st = getWorldState(worldId);
+    st.characters = st.characters || {};
+    return st.characters[charId] || null;
+  }
+  function setCharacterState(worldId, charId, patch) {
+    const st = getWorldState(worldId);
+    st.characters = st.characters || {};
+    st.characters[charId] = Object.assign({}, st.characters[charId] || {}, patch || {});
+    setWorldState(worldId, st);
+  }
+
+  // Utils
+  function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  // Init
+  loadWorlds();
+})();

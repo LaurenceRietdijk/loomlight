@@ -14,6 +14,7 @@
         <button class="tab-button" data-tab="map">Map</button>
         <button class="tab-button" data-tab="locale">Locale</button>
         <button class="tab-button" data-tab="character" disabled>Character</button>
+        <button class="tab-button" data-tab="quests" disabled>Quests</button>
       </nav>
       <div class="controls">
         <input id="api-key" type="password" placeholder="OpenAI API Key" />
@@ -30,6 +31,15 @@
           </div>
           <div id="world-list" class="world-list"></div>
           <div id="world-error" class="error"></div>
+        </div>
+        <div class="panel" style="margin-top:12px;">
+          <h2>Select a Player Character</h2>
+          <div class="world-actions" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="pc-name-input" type="text" placeholder="New player character name" />
+            <button id="btn-add-pc">Add Character</button>
+          </div>
+          <div id="pc-list" class="world-list"></div>
+          <div id="pc-error" class="error"></div>
         </div>
       </section>
 
@@ -79,6 +89,10 @@
             <div class="section-title">System Prompt</div>
             <textarea id="system-prompt" readonly placeholder="System prompt will appear after you send a message..."></textarea>
           </div>
+          <div class="commands-prompt">
+            <div class="section-title">Command History</div>
+            <textarea id="commands-history" readonly placeholder="Commands will appear after replies..."></textarea>
+          </div>
           <div class="dialogue">
             <div id="dialogue-log" class="dialogue-log"></div>
             <div class="dialogue-input">
@@ -90,9 +104,21 @@
           <div id="character-error" class="error"></div>
         </div>
       </section>
+
+      <section id="tab-quests" class="tab-panel">
+        <div class="panel">
+          <div class="section-title">Accepted Quests</div>
+          <div id="quests-list"></div>
+          <div id="quests-error" class="error"></div>
+        </div>
+      </section>
     </main>
 
+    <div id="toast" class="toast" style="display:none;"></div>
+
     <script src="/prompt.js"></script>
+    <script src="/context.js"></script>
+    <script src="/commands.js"></script>
     <script src="/app.js"></script>
   </body>
   </html>

@@ -145,3 +145,21 @@ table.table th { background: var(--cell-hover); }
 /* System prompt box */
 .system-prompt { margin-top: 12px; display: grid; gap: 6px; }
 #system-prompt { min-height: 120px; width: 100%; resize: vertical; background: var(--cell); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+/* Commands history box */
+.commands-prompt { margin-top: 12px; display: grid; gap: 6px; }
+#commands-history { min-height: 120px; width: 100%; resize: vertical; background: var(--cell); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+/* Toast / alert */
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  background: #1f2a36;
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.3);
+  max-width: 320px;
+  z-index: 9999;
+}

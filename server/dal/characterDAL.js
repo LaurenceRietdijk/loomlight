@@ -1,10 +1,11 @@
+const mongoose = require("mongoose");
 const getDatabaseConnection = require("../config/worldDBs");
 const CharacterSchema = require("../models/character");
 const FactionSchema = require("../models/faction");
 const LocaleSchema = require("../models/locale");
 const BuildingSchema = require("../models/building");
 const ItemSchema = require("../models/item");
-const { ensureQuestModel } = require("../models/quest");
+const { QuestBaseSchema } = require("../models/quest");
 
 class CharacterDAL {
   /**
@@ -57,6 +58,18 @@ class CharacterDAL {
   }
 
   /**
+   * Count NPCs at a locale considered 'active' (i.e., not dead). Used for Clear quest tracking.
+   * @param {string} world_id
+   * @param {string} locale_id
+   * @returns {Promise<number>}
+   */
+  static async countActiveByLocale(world_id, locale_id) {
+    const db = getDatabaseConnection(world_id);
+    const CharacterModel = db.model("Character", CharacterSchema);
+    return await CharacterModel.countDocuments({ "location.locale": locale_id, status: { $ne: "dead" } });
+  }
+
+  /**
    * Append a quest reference to a character's quests array.
    * @param {string} world_id
    * @param {string} character_id
@@ -91,11 +104,14 @@ class CharacterDAL {
     db.model("Building", BuildingSchema);
     db.model("Item", ItemSchema);
     db.model("Character", CharacterSchema);
+
+    // ✅ Register Quest base + all discriminators
+    const { ensureQuestModel } = require("../models/quest");
     ensureQuestModel(db);
 
     const CharacterModel = db.model("Character", CharacterSchema);
 
-    const doc = await CharacterModel.findById(character_id)
+    let doc = await CharacterModel.findById(character_id)
       .populate("faction")
       .populate("location.locale")
       .populate({
@@ -114,34 +130,34 @@ class CharacterDAL {
       })
       .populate({
         path: "work",
-        populate: [
-          { path: "rooms.characters", model: "Character" },
-          { path: "rooms.containers.items", model: "Item" },
-        ],
+        select: "name type description",
       })
       .populate("relationships.character_id")
       .populate("relationships.shared_children")
       .populate({
         path: "quests",
-        populate: [
-          { path: "item", model: "Item" },
-          { path: "recipient", model: "Character" },
-          { path: "targetCharacter", model: "Character" },
-          { path: "targetFaction", model: "Faction" },
-          { path: "targetLocale", model: "Locale" },
-          { path: "pickup.locale", model: "Locale" },
-          { path: "pickup.building", model: "Building" },
-          { path: "dropoff.locale", model: "Locale" },
-          { path: "dropoff.building", model: "Building" },
-          { path: "source.locale", model: "Locale" },
-          { path: "source.building", model: "Building" },
-          { path: "area.locale", model: "Locale" },
-          { path: "area.building", model: "Building" },
-        ],
+        select: "title description",
       })
       .exec();
 
     return doc;
+  }
+
+  /**
+   * Update a character's status field.
+   * @param {string} world_id
+   * @param {string} character_id
+   * @param {string} status
+   * @returns {Promise<Object|null>} Updated character
+   */
+  static async updateCharacterStatus(world_id, character_id, status) {
+    const db = getDatabaseConnection(world_id);
+    const CharacterModel = db.model("Character", CharacterSchema);
+    return await CharacterModel.findByIdAndUpdate(
+      character_id,
+      { $set: { status } },
+      { new: true }
+    );
   }
 }
 

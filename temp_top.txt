@@ -1,134 +1,200 @@
-﻿const mongoose = require("mongoose");
-const OpenAI = require("openai");
-const BuildingDAL = require("../dal/buildingDAL");
-
-const openai = new OpenAI({ apiKey: process.env.API_KEY });
-
-class BuildingGenerator {
-  /**
-   * Creates building documents for a locale from a list of building types and inserts them.
-   * Uses a single GPT prompt to generate all buildings, including names, descriptions, rooms, and containers.
-   * @param {string} world_id
-   * @param {Object} localeDoc - object containing at least _id
-   * @param {Array<string>} buildingTypes - e.g. ["Tavern", "Blacksmith", ...]
-   * @returns {Promise<Array<Object>>} inserted building docs
-   */
-  static async generateBuildingsForLocale(world_id, localeDoc, buildingTypes, rosters = []) {
-    const systemMsg = `You generate JSON for medieval fantasy buildings based on requested types, including their rooms and containers.
-
-Return ONLY valid JSON with no extra text.
-
-Output JSON shape (array; same length/order as requested types):
-[
-  {
-    "name": "Canonical building name (invented)",
-    "type": "Requested type or close category (e.g., Inn, Blacksmith, Temple, Market, Barracks, Generic)",
-    "description": "1-3 sentences",
-    "rooms": [
-      {
-        "name": "Room name",
-        "description": "1-2 sentences",
-        "containers": [
-          { "name": "Container name", "type": "Chest/Barrel/Shelf/...", "description": "short" }
-        ]
-      }
-    ]
-  }
- ]`;
-
-    const paired = buildingTypes.map((t, idx) => ({ type: t, roster: rosters[idx] || [] }));
-    const userMsg = `Locale context:\n{\n  "name": "${escapeStr(localeDoc.name)}",\n  "type": "${escapeStr(localeDoc.type)}",\n  "description": ${JSON.stringify(localeDoc.description || "")}\n}\n\nRequested buildings (types + roster) in order:\n${JSON.stringify(paired, null, 2)}\n\nTask:\n- For each requested type, invent an appropriate building for this locale with an evocative name and description.\n- Include 2-6 rooms; each room may include 0-3 containers.\n- Assign each rostered character to exactly one room that makes sense for their role or residency.\n- Return a JSON array (same length/order) where each element includes: name, type, description, rooms, and assignments: [{"character_id": "...", "room": "Room Name"}]`;
-
-    let parsedArray = [];
-    try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: systemMsg },
-          { role: "user", content: userMsg },
-        ],
-        temperature: 0.8,
-        max_tokens: 2000,
-      });
-
-      const content = completion.choices?.[0]?.message?.content || "[]";
-      parsedArray = JSON.parse(content);
-      if (!Array.isArray(parsedArray)) throw new Error("Response is not an array");
-    } catch (e) {
-      console.error("Batched AI building generation failed:", e?.message || e);
-      parsedArray = [];
-    }
-
-    // Normalize array length to match requested types
-    const results = buildingTypes.map((type, idx) => {
-      const parsed = parsedArray[idx];
-      if (parsed && parsed.name) {
-        return mapParsedBuildingToDoc(parsed, localeDoc, type);
-      }
-      return {
-        _id: new mongoose.Types.ObjectId(),
-        name: String(type),
-        type: String(type),
-        description: "",
-        locale: localeDoc._id,
-        rooms: [],
-      };
-    });
-
-    await BuildingDAL.insertBuildings(world_id, results);
-    return results;
-  }
-}
-
-function mapParsedBuildingToDoc(parsed, locale, seedType) {
-  const rooms = Array.isArray(parsed?.rooms) ? parsed.rooms : [];
-  const roomDocs = rooms.map((r) => ({
-    _id: new mongoose.Types.ObjectId(),
-    name: String(r?.name || "Room"),
-    description: String(r?.description || ""),
-    containers: Array.isArray(r?.containers)
-      ? r.containers.map((c) => ({
-          _id: new mongoose.Types.ObjectId(),
-          name: String(c?.name || "Container"),
-          type: String(c?.type || "Container"),
-          description: String(c?.description || ""),
-          items: [],
-        }))
-      : [],
-    characters: [],
-  }));
-
-  // Apply assignments if provided (by room name)
-  const assignments = Array.isArray(parsed?.assignments) ? parsed.assignments : [];
-  const roomByName = new Map(roomDocs.map((rd) => [rd.name.toLowerCase(), rd]));
-  for (const a of assignments) {
-    const roomName = String(a?.room || "").toLowerCase();
-    const charId = a?.character_id;
-    if (!charId) continue;
-    const rd = roomByName.get(roomName);
-    if (rd) {
-      try {
-        // Accept either ObjectId-like or string; store as ObjectId-compatible string
-        rd.characters.push(new mongoose.Types.ObjectId(String(charId)));
-      } catch {
-        // If not a valid ObjectId string, store raw string; Mongoose will cast or fail on save
-        rd.characters.push(String(charId));
-      }
-    }
-  }
-
-  return {
-    _id: new mongoose.Types.ObjectId(),
-    name: String(parsed?.name || seedType || "Building"),
-    type: String(parsed?.type || String(seedType || "Generic")),
-    description: String(parsed?.description || ""),
-    locale: locale._id,
-    rooms: roomDocs,
+(() => {
+  const state = {
+    worlds: [],
+    currentWorld: null,
+    locales: [],
+    bounds: null,
+    selectedCoords: null,
+    selectedCharacter: null,
   };
-}
 
-function escapeStr(s) {
-  return String(s || "").replace(/"/g, '\\"');
-}
+  // Tab wiring
+  const tabButtons = document.querySelectorAll('.tab-button');
+  const panels = {
+    worlds: document.getElementById('tab-worlds'),
+    map: document.getElementById('tab-map'),
+    locale: document.getElementById('tab-locale'),
+    character: document.getElementById('tab-character'),
+  };
+  const characterTabButton = document.querySelector('.tab-button[data-tab="character"]');
+  function switchTab(key) {
+    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === key));
+    Object.entries(panels).forEach(([k, el]) => el.classList.toggle('active', k === key));
+    // When navigating to character tab, refresh with full character payload
+    if (key === 'character') {
+      loadSelectedCharacterFull();
+    }
+  }
+  document.querySelector('.tabs').addEventListener('click', (e) => {
+    if (e.target.classList.contains('tab-button')) {
+      if (e.target.hasAttribute('disabled')) return;
+      switchTab(e.target.dataset.tab);
+    }
+  });
 
-module.exports = BuildingGenerator;
+  // World selection UI
+  const elWorldList = document.getElementById('world-list');
+  const elWorldErr = document.getElementById('world-error');
+  const elWorldName = document.getElementById('current-world-name');
+  const elCreatorInput = document.getElementById('creator-input');
+  const btnGenerateWorld = document.getElementById('btn-generate-world');
+
+  async function loadWorlds() {
+    elWorldErr.textContent = '';
+    try {
+      const res = await fetch('/world');
+      if (!res.ok) throw new Error('Failed to load worlds');
+      const data = await res.json();
+      state.worlds = data.worlds || [];
+      renderWorlds();
+    } catch (err) {
+      console.error(err);
+      elWorldErr.textContent = 'Error loading worlds.';
+    }
+  }
+
+  function renderWorlds() {
+    elWorldList.innerHTML = '';
+    if (!state.worlds.length) {
+      elWorldList.innerHTML = '<div class="world-meta">No worlds found. Generate one via the API.</div>';
+      return;
+    }
+    state.worlds.forEach(w => {
+      const card = document.createElement('div');
+      card.className = 'world-card';
+      card.innerHTML = `
+        <div class="world-title">${escapeHtml(w.name)}</div>
+        <div class="world-meta">${escapeHtml(w.creator || 'unknown')}</div>
+        <div class="world-meta">${new Date(w.createdAt || w.created_at || w._id?.toString().slice(0,8)).toLocaleString()}</div>
+        <div class="actions">
+          <button class="btn-delete" title="Delete">Delete</button>
+        </div>
+      `;
+      card.addEventListener('click', () => selectWorld(w));
+      const btnDel = card.querySelector('.btn-delete');
+      btnDel.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const ok = confirm(`Delete world "${w.name}"? This removes its database.`);
+        if (!ok) return;
+        try {
+          const res = await fetch(`/world/${w._id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete world');
+          await loadWorlds();
+        } catch (err) {
+          console.error(err);
+          elWorldErr.textContent = 'Error deleting world.';
+        }
+      });
+      elWorldList.appendChild(card);
+    });
+  }
+
+  if (btnGenerateWorld) {
+    btnGenerateWorld.addEventListener('click', async () => {
+      elWorldErr.textContent = '';
+      const creator = (elCreatorInput?.value || '').trim();
+      if (!creator) { elWorldErr.textContent = 'Please enter a creator.'; return; }
+      try {
+        const res = await fetch('/world/generate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ creator })
+        });
+        if (!res.ok) throw new Error('Failed to generate world');
+        await loadWorlds();
+      } catch (err) {
+        console.error(err);
+        elWorldErr.textContent = 'Error generating world.';
+      }
+    });
+  }
+
+  async function selectWorld(world) {
+    state.currentWorld = world;
+    elWorldName.textContent = world.name;
+    state.selectedCharacter = null;
+    if (characterTabButton) characterTabButton.setAttribute('disabled', 'true');
+    switchTab('map');
+    await loadLocales();
+  }
+
+  // Map rendering
+  const elMapGrid = document.getElementById('map-grid');
+  const elMapContainer = document.getElementById('map-container');
+  const elMapErr = document.getElementById('map-error');
+
+  async function loadLocales() {
+    if (!state.currentWorld) return;
+    elMapErr.textContent = '';
+    elMapGrid.innerHTML = '';
+    try {
+      const params = new URLSearchParams({ world_id: state.currentWorld._id });
+      const res = await fetch(`/locale/list?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to load locales');
+      const data = await res.json();
+      state.locales = data.locales || [];
+      renderMap();
+    } catch (err) {
+      console.error(err);
+      elMapErr.textContent = 'Error loading locales.';
+    }
+  }
+
+  function computeBounds(locales) {
+    let minX = 0, maxX = 0, minY = 0, maxY = 0;
+    for (const loc of locales) {
+      const x = loc.coordinates?.x ?? 0;
+      const y = loc.coordinates?.y ?? 0;
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    }
+    // Ensure (0,0) is within bounds
+    minX = Math.min(minX, 0);
+    maxX = Math.max(maxX, 0);
+    minY = Math.min(minY, 0);
+    maxY = Math.max(maxY, 0);
+
+    // Add a small margin for breathing room
+    const pad = 1;
+    return { minX: minX - pad, maxX: maxX + pad, minY: minY - pad, maxY: maxY + pad };
+  }
+
+  function renderMap() {
+    const map = new Map();
+    for (const loc of state.locales) {
+      const key = `${loc.coordinates.x},${loc.coordinates.y}`;
+      map.set(key, loc);
+    }
+    const b = state.bounds = computeBounds(state.locales);
+    const cols = b.maxX - b.minX + 1;
+    const rows = b.maxY - b.minY + 1;
+
+    elMapGrid.style.gridTemplateColumns = `repeat(${cols}, minmax(80px, 1fr))`;
+    elMapGrid.style.gridTemplateRows = `repeat(${rows}, 60px)`;
+    elMapGrid.innerHTML = '';
+
+    for (let y = b.maxY; y >= b.minY; y--) {
+      for (let x = b.minX; x <= b.maxX; x++) {
+        const key = `${x},${y}`;
+        const loc = map.get(key);
+        const cell = document.createElement('div');
+        cell.className = 'map-cell' + (loc ? ' locale' : '');
+        cell.dataset.x = x;
+        cell.dataset.y = y;
+        cell.innerHTML = loc ? `
+          <div class="cell-label">
+            <div class="name">${escapeHtml(loc.name)}</div>
+            <div class="coords">(${x}, ${y}) - ${escapeHtml(loc.type || '') }</div>
+          </div>
+        ` : `
+          <div class="cell-label">
+            <div class="coords">(${x}, ${y})</div>
+          </div>
+        `;
+        cell.addEventListener('click', () => onCellClick(x, y, !!loc));
+        elMapGrid.appendChild(cell);
+      }
+    }
+
+    // Scroll near the (0,0) cell

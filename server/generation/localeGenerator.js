@@ -16,10 +16,11 @@ class LocaleGenerator {
    * @param {string} world_id - The world database ID.
    * @param {number} x - The X coordinate.
    * @param {number} y - The Y coordinate.
-   * @param {string} locale_type
+   * @param {string} locale_type - e.g. "Camp", "Hamlet", "Village", "Town".
+   * @param {string|null} primaryRaceId - Optional race ObjectId to force as primary race.
    * @returns {Promise<Object>} - The newly inserted locale from the database.
    */
-  static async generateAndInsertLocale(world_id, x, y, locale_type) {
+  static async generateAndInsertLocale(world_id, x, y, locale_type, primaryRaceId = null) {
     console.log(
       `Generating new locale at (${x}, ${y}) for world ${world_id}...`
     );
@@ -35,6 +36,9 @@ class LocaleGenerator {
     // Population range by type
     let populationRange;
     switch (locale_type.toLowerCase()) {
+      case "camp":
+        populationRange = [5, 10];
+        break;
       case "hamlet":
         populationRange = [5, 20];
         break;
@@ -60,6 +64,9 @@ class LocaleGenerator {
 
     let buildings = [];
     switch (locale_type.toLowerCase()) {
+      case "camp":
+        buildings = [];
+        break;
       case "hamlet":
         buildings = getRandomItems(HAMLET_BUILDINGS, 1);
         break;
@@ -110,13 +117,25 @@ Use this format:
 
     const generatedLocale = JSON.parse(completion.choices[0].message.content);
 
-    // Choose a primary race from sentient races
+    // Choose a primary race
     const races = await RaceDAL.getRaces(world_id);
-    const sentientRaces = races.filter(
-      (r) => r.classification === "Sapient"
-    );
-    const primaryRace =
-      sentientRaces[Math.floor(Math.random() * sentientRaces.length)] || null;
+    let primaryRace = null;
+    if (primaryRaceId) {
+      // If caller provided a primary race, use it directly when available
+      primaryRace = await RaceDAL.getRaceById(world_id, primaryRaceId);
+    } else {
+      // Auto-select: for camps use any race; for settlements prefer sapient races
+      if (locale_type.toLowerCase() === "camp") {
+        primaryRace = races.length
+          ? races[Math.floor(Math.random() * races.length)]
+          : null;
+      } else {
+        const sentientRaces = races.filter((r) => r.classification === "Sapient");
+        primaryRace = sentientRaces.length
+          ? sentientRaces[Math.floor(Math.random() * sentientRaces.length)]
+          : (races.length ? races[Math.floor(Math.random() * races.length)] : null);
+      }
+    }
 
     // Initialize localeData
     const localeData = {
@@ -137,6 +156,58 @@ Use this format:
       special_features: generatedLocale.special_features || [],
       buildings: [],
     };
+
+    // If this is a camp, we follow a simplified flow: no buildings or families
+    if (locale_type.toLowerCase() === "camp") {
+      // Build a simple set of characters equal to population
+      const raceName = primaryRace?.name || "Human";
+      const characters = [];
+      for (let i = 0; i < population; i++) {
+        const id = new mongoose.Types.ObjectId();
+        // Simple randomization for age and gender
+        const genders = ["male", "female", "nonbinary"];
+        const gender = genders[Math.floor(Math.random() * genders.length)];
+        const age = 16 + Math.floor(Math.random() * 45); // 16-60
+
+        characters.push({
+          _id: id,
+          name: `Camper ${i + 1}`,
+          title: "",
+          description: "A member of the traveling camp.",
+          personality: "Tight-knit, resourceful, and communal.",
+          race: raceName,
+          age,
+          gender,
+          faction: null,
+          location: { locale: localeData._id, building: null, room: null },
+          home: null,
+          work: null,
+          role: "camper",
+          status: "active",
+          relationships: [],
+        });
+      }
+
+      // Everyone knows everyone else: add "camp mate" relationships
+      for (const c of characters) {
+        c.relationships = characters
+          .filter((o) => o._id.toString() !== c._id.toString())
+          .map((o) => ({ character_id: o._id, connection: "camp mate" }));
+      }
+
+      // Insert characters
+      await characterDAL.insertCharacters(world_id, characters);
+
+      // Reference characters in the locale summary
+      localeData.characters = characters.map((c) => ({
+        _id: c._id,
+        building: null,
+        role: c.role,
+      }));
+
+      // Insert the complete locale
+      return await LocaleDAL.insertLocale(world_id, localeData);
+    }
 
     // Generate characters for each building type first
     const allCharacters = [];
