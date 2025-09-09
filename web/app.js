@@ -312,6 +312,49 @@
       return;
     }
     elQuestsList.innerHTML = state.quests.map(q => questItemHTML(q)).join('');
+
+    // One-time delegate for recompute buttons
+    if (!elQuestsList._recomputeHooked) {
+      elQuestsList.addEventListener('click', async (e) => {
+        const btn = e.target && e.target.closest('button[data-action="recompute-quest"]');
+        if (!btn) return;
+        const qid = btn.getAttribute('data-qid');
+        if (!qid || !state.currentWorld) return;
+        const prevText = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Recomputing…';
+        try {
+          const res = await fetch('/quest/recompute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              world_id: String(state.currentWorld._id),
+              quest_id: String(qid),
+            }),
+          });
+          if (!res.ok) {
+            const t = await res.text();
+            throw new Error(t || 'Failed to recompute quest');
+          }
+          const data = await res.json();
+          const uq = data && data.quest ? data.quest : null;
+          if (uq && uq._id) {
+            const idx = state.quests.findIndex(q => String(q._id) === String(uq._id));
+            if (idx >= 0) {
+              state.quests[idx].enemiesRemaining = uq.enemiesRemaining || 0;
+              state.quests[idx].state = uq.state || state.quests[idx].state;
+              state.quests[idx].questType = state.quests[idx].questType || state.quests[idx].type || uq.questType || uq.type;
+              renderQuests();
+              showToast('Quest recomputed');
+            }
+          }
+        } catch (err) {
+          console.error(err);
+          showToast('Failed to recompute quest');
+          btn.disabled = false; btn.textContent = prevText;
+        }
+      }, { passive: true });
+      elQuestsList._recomputeHooked = true;
+    }
   }
 
   function questStatusLabel(q) {
@@ -326,16 +369,35 @@
   function questItemHTML(q) {
     const title = escapeHtml(q.title || 'Untitled Quest');
     const status = escapeHtml(questStatusLabel(q));
-    const rawType = String(q.questType || '').trim();
+    const rawType = String((q && (q.questType || q.type)) || '').trim();
     const typeLabel = escapeHtml(rawType || '');
     const lowType = rawType.toLowerCase();
     let progress = '';
     if (lowType === 'clear') {
       const rem = Number(q.enemiesRemaining || 0);
       progress = `<div class="muted">${rem} enemies remaining</div>`;
+    } else if (lowType === 'explore') {
+      const locName = (q.targetLocale && typeof q.targetLocale === 'object' && q.targetLocale.name)
+        ? q.targetLocale.name
+        : 'target area';
+      progress = `<div class="muted">Explore ${escapeHtml(locName)}</div>`;
+    } else if (lowType === 'kill') {
+      const cnt = Number(q.count || 1);
+      const who = q.targetFaction ? 'enemies' : (q.targetCharacter ? 'target(s)' : 'enemies');
+      progress = `<div class="muted">Defeat ${cnt} ${who}</div>`;
+    } else if (lowType === 'fetch') {
+      const qty = Number(q.quantity || 1);
+      progress = `<div class="muted">Collect ${qty} item(s)</div>`;
+    } else if (lowType === 'deliver') {
+      const qty = Number(q.quantity || 1);
+      progress = `<div class="muted">Deliver ${qty} item(s)</div>`;
+    } else if (lowType === 'gather') {
+      const qty = Number(q.quantity || 1);
+      const resName = q.resourceName ? escapeHtml(q.resourceName) : 'resources';
+      progress = `<div class="muted">Gather ${qty} ${resName}</div>`;
     } else {
-      // TODO: Placeholder for other quest types (Fetch, Deliver, Kill, Gather, Explore)
-      progress = '<div class="muted">Progress tracking coming soon...</div>';
+      // For unknown types, omit the progress line to avoid placeholder text
+      progress = '';
     }
     const desc = escapeHtml(q.description || '');
     return `
@@ -347,6 +409,9 @@
         <div class="acc-content">
           <div class="muted" style="margin-bottom:6px;">${desc}</div>
           ${progress}
+          <div class="actions" style="margin-top:8px;">
+            <button class="btn" data-action="recompute-quest" data-qid="${String(q._id)}">Recompute</button>
+          </div>
         </div>
       </details>
     `;
@@ -801,7 +866,7 @@
         elCharacterBody.innerHTML = '<div class="muted">Loading character…</div>';
       }
       const params = new URLSearchParams({
-        world_id: state.currentWorld._id,
+        world_id: state.currentWorld && state.currentWorld._id ? String(state.currentWorld._id) : '',
         character_id: cid,
       });
       const res = await fetch(`/character/full?${params.toString()}`);
@@ -1077,7 +1142,7 @@
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              world_id: state.currentWorld?._id,
+              world_id: state.currentWorld && state.currentWorld._id ? String(state.currentWorld._id) : '',
               character_id: String(c._id),
             }),
           });
