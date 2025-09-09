@@ -1,4 +1,4 @@
-const express = require("express");
+﻿const express = require("express");
 const router = express.Router();
 
 const QuestGenerator = require("../generation/questGenerator");
@@ -118,7 +118,32 @@ router.get("/accepted", async (req, res) => {
     if (!world_id || !player_character_id) {
       return res.status(400).json({ error: "Missing world_id or player_character_id" });
     }
-    const quests = await QuestDAL.getQuestsByAcceptedBy(world_id, player_character_id, ["acepted", "completed"]);
+    const docs = await QuestDAL.getQuestsByAcceptedBy(world_id, player_character_id, ["acepted", "completed"]);
+
+    // Normalize shape for legacy data: ensure questType exists
+    const quests = (docs || []).map((q) => {
+      const obj = typeof q.toObject === 'function' ? q.toObject() : q;
+      obj.questType = obj.questType || obj.type || '';
+      return obj;
+    });
+
+    // Ensure Clear quests reflect current enemies remaining at load time
+    try {
+      const updates = await Promise.all(
+        quests
+          .filter(q => String(q.questType || q.type).toLowerCase() === 'clear' && q.targetLocale)
+          .map(async (q) => {
+            const updated = await QuestDAL.recomputeClearQuest(world_id, q._id);
+            if (updated) {
+              q.enemiesRemaining = updated.enemiesRemaining;
+              q.state = updated.state;
+            }
+            return null;
+          })
+      );
+      void updates; // silence unused
+    } catch (_) { /* non-fatal */ }
+
     return res.status(200).json({ quests });
   } catch (error) {
     console.error("Error listing accepted quests:", error);
@@ -126,4 +151,67 @@ router.get("/accepted", async (req, res) => {
   }
 });
 
+/**
+ * Utility endpoint: returns live NPC count for a locale (status != 'dead').
+ * Query: world_id, locale_id
+ */
+router.get("/clearCount", async (req, res) => {
+  try {
+    const { world_id, locale_id } = req.query || {};
+    if (!world_id || !locale_id) {
+      return res.status(400).json({ error: "Missing world_id or locale_id" });
+    }
+    const CharacterDAL = require("../dal/characterDAL");
+    const count = await CharacterDAL.countActiveByLocale(world_id, locale_id);
+    return res.status(200).json({ count });
+  } catch (error) {
+    console.error("Error in /quest/clearCount:", error);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * Manually recompute progress for a quest.
+ * Currently supports Clear quests (updates enemiesRemaining, state) and emits events.
+ * Body: { world_id, quest_id }
+ */
+router.post("/recompute", async (req, res) => {
+  try {
+    const { world_id, quest_id } = req.body || {};
+    if (!world_id || !quest_id) {
+      return res.status(400).json({ error: "Missing world_id or quest_id" });
+    }
+
+    // Recompute only handles Clear quests; others are returned as-is
+    const updated = await QuestDAL.recomputeClearQuest(world_id, quest_id);
+    if (!updated) return res.status(404).json({ error: "Quest not found" });
+
+    // SSE emission removed; manual recompute returns updated quest only
+
+    return res.status(200).json({ quest: updated });
+  } catch (error) {
+    console.error("Error recomputing quest:", error);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * Test progress endpoint. Logs access and echoes ids.
+ * Body: { world_id, quest_id }
+ */
+router.post("/testProgress", async (req, res) => {
+  try {
+    const { world_id, quest_id } = req.body || {};
+    console.log("[testProgress]", { world_id, quest_id });
+    if (!world_id || !quest_id) {
+      return res.status(400).json({ error: "Missing world_id or quest_id" });
+    }
+    return res.status(200).json({ ok: true, world_id, quest_id, message: `World ${world_id}, Quest ${quest_id}` });
+  } catch (e) {
+    console.error("Error in /quest/testProgress:", e);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
 module.exports = router;
+

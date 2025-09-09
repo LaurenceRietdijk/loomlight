@@ -119,6 +119,13 @@
     <script src="/prompt.js"></script>
     <script src="/context.js"></script>
     <script src="/commands.js"></script>
+    <!-- Models must load before app.js -->
+    <script src="/models/quest.js"></script>
+    <script src="/models/character.js"></script>
+    <!-- Order matters: primitives before Locale -->
+    <script src="/models/locale.js"></script>
+    <script src="/models/player.js"></script>
+    <script src="/models/game.js"></script>
     <script src="/app.js"></script>
   </body>
   </html>

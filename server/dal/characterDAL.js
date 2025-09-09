@@ -54,7 +54,12 @@ class CharacterDAL {
   static async getCharactersByLocale(world_id, locale_id) {
     const db = getDatabaseConnection(world_id);
     const CharacterModel = db.model("Character", CharacterSchema);
-    return await CharacterModel.find({ "location.locale": locale_id });
+    let id = locale_id;
+    if (id && typeof id === 'object' && id._id) id = id._id;
+    try {
+      if (typeof id === 'string') id = new mongoose.Types.ObjectId(id);
+    } catch (_) { /* leave as-is if not a valid ObjectId */ }
+    return await CharacterModel.find({ "location.locale": id });
   }
 
   /**
@@ -66,7 +71,17 @@ class CharacterDAL {
   static async countActiveByLocale(world_id, locale_id) {
     const db = getDatabaseConnection(world_id);
     const CharacterModel = db.model("Character", CharacterSchema);
-    return await CharacterModel.countDocuments({ "location.locale": locale_id, status: { $ne: "dead" } });
+    let id = locale_id;
+    if (id && typeof id === 'object' && id._id) id = id._id;
+    try {
+      if (typeof id === 'string') id = new mongoose.Types.ObjectId(id);
+    } catch (_) { /* leave as-is if not a valid ObjectId */ }
+    answer = await CharacterModel.countDocuments({
+      "location.locale": id,
+      status: { $ne: "dead" },
+    });
+    console.log(`Counted ${answer} active NPCs at locale ${locale_id} in world ${world_id}`);
+    return answer;
   }
 
   /**
@@ -150,15 +165,7 @@ class CharacterDAL {
    * @param {string} status
    * @returns {Promise<Object|null>} Updated character
    */
-  static async updateCharacterStatus(world_id, character_id, status) {
-    const db = getDatabaseConnection(world_id);
-    const CharacterModel = db.model("Character", CharacterSchema);
-    return await CharacterModel.findByIdAndUpdate(
-      character_id,
-      { $set: { status } },
-      { new: true }
-    );
-  }
+  // Removed: updateCharacterStatus; client-side handles local-only kill state
 }
 
 module.exports = CharacterDAL;

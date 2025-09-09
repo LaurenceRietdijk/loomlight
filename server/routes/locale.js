@@ -21,6 +21,43 @@ router.get("/list", async (req, res) => {
 });
 
 /**
+ * Fetch a locale by id with fully populated references.
+ * Query: world_id, id
+ */
+router.get("/byId", async (req, res) => {
+  try {
+    const { world_id, id } = req.query || {};
+    if (!world_id || !id) {
+      return res.status(400).json({ error: "Missing world_id or id" });
+    }
+    const locale = await LocaleDAL.getLocaleFullById(world_id, id);
+    if (!locale) return res.status(404).json({ error: "Locale not found" });
+    return res.status(200).json({ locale });
+  } catch (error) {
+    console.error("Error fetching locale by id:", error);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * Fetch many locales by ids and return a dictionary keyed by id with full docs.
+ * Body: { world_id: string, ids: string[] }
+ */
+router.post("/byIds", async (req, res) => {
+  try {
+    const { world_id, ids } = req.body || {};
+    if (!world_id || !Array.isArray(ids)) {
+      return res.status(400).json({ error: "Missing world_id or ids[]" });
+    }
+    const localesById = await LocaleDAL.getLocalesFullByIds(world_id, ids);
+    return res.status(200).json({ localesById });
+  } catch (error) {
+    console.error("Error fetching locales by ids:", error);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
  * Fetch an existing locale from the database (no AI generation).
  */
 router.get("/", async (req, res) => {

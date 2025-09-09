@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   const state = {
     worlds: [],
     currentWorld: null,
@@ -141,7 +141,13 @@
       } catch {}
       switchTab('map');
       await loadLocales();
-      connectEventStream();
+      // Initialize Player/Game model when both world and player are selected
+      try {
+        if (window.Models && window.Models.Player && window.Game) {
+          const player = window.Models.Player.fromSelection(state.currentWorld, state.selectedPlayerCharacter);
+          window.Game.setPlayer(player);
+        }
+      } catch {}
       await loadAcceptedQuests();
     } else {
       // Stay on worlds tab until a player character is selected
@@ -216,7 +222,13 @@
       try { await ensureActivePCDoc(state.currentWorld._id, state.selectedPlayerCharacter._id); } catch {}
       switchTab('map');
       await loadLocales();
-      connectEventStream();
+      // Initialize/refresh Player/Game model when both world and player are selected
+      try {
+        if (window.Models && window.Models.Player && window.Game) {
+          const player = window.Models.Player.fromSelection(state.currentWorld, state.selectedPlayerCharacter);
+          window.Game.setPlayer(player);
+        }
+      } catch {}
       await loadAcceptedQuests();
     }
   }
@@ -272,11 +284,25 @@
     elMapErr.textContent = '';
     elMapGrid.innerHTML = '';
     try {
-      const params = new URLSearchParams({ world_id: state.currentWorld._id });
-      const res = await fetch(`/locale/list?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to load locales');
-      const data = await res.json();
-      state.locales = data.locales || [];
+      // Prefer Game cache if present; otherwise fetch then cache
+      let locales = (window.Game && typeof window.Game.getAllLocales === 'function')
+        ? window.Game.getAllLocales()
+        : [];
+      if (!Array.isArray(locales) || locales.length === 0) {
+        const params = new URLSearchParams({ world_id: state.currentWorld._id });
+        const res = await fetch(`/locale/list?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to load locales');
+        const data = await res.json();
+        const raw = data.locales || [];
+        try {
+          if (window.Game && typeof window.Game.setLocalesFromArray === 'function') {
+            locales = window.Game.setLocalesFromArray(raw);
+          } else {
+            locales = raw;
+          }
+        } catch { locales = raw; }
+      }
+      state.locales = locales || [];
       renderMap();
     } catch (err) {
       console.error(err);
@@ -299,6 +325,12 @@
       const data = await res.json();
       state.quests = Array.isArray(data.quests) ? data.quests : [];
       renderQuests();
+      // Populate Player model quests list
+      try {
+        if (window.Game && window.Game.player && typeof window.Game.player.setQuestsFromArray === 'function') {
+          window.Game.player.setQuestsFromArray(state.quests);
+        }
+      } catch {}
     } catch (e) {
       console.error(e);
       elQuestsErr.textContent = 'Error loading quests.';
@@ -321,38 +353,26 @@
         const qid = btn.getAttribute('data-qid');
         if (!qid || !state.currentWorld) return;
         const prevText = btn.textContent;
-        btn.disabled = true; btn.textContent = 'Recomputing…';
-        try {
-          const res = await fetch('/quest/recompute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              world_id: String(state.currentWorld._id),
-              quest_id: String(qid),
-            }),
-          });
-          if (!res.ok) {
-            const t = await res.text();
-            throw new Error(t || 'Failed to recompute quest');
-          }
-          const data = await res.json();
-          const uq = data && data.quest ? data.quest : null;
-          if (uq && uq._id) {
-            const idx = state.quests.findIndex(q => String(q._id) === String(uq._id));
-            if (idx >= 0) {
-              state.quests[idx].enemiesRemaining = uq.enemiesRemaining || 0;
-              state.quests[idx].state = uq.state || state.quests[idx].state;
-              state.quests[idx].questType = state.quests[idx].questType || state.quests[idx].type || uq.questType || uq.type;
-              renderQuests();
-              showToast('Quest recomputed');
-            }
-          }
-        } catch (err) {
-          console.error(err);
-          showToast('Failed to recompute quest');
-          btn.disabled = false; btn.textContent = prevText;
-        }
-      }, { passive: true });
+btn.disabled = true; btn.textContent = 'Recomputing…';
+try {
+  let msg = '';
+  if (window.Game && window.Game.player && Array.isArray(window.Game.player.quests)) {
+    const qObj = window.Game.player.quests.find(q => String(q.id) === String(qid));
+    if (qObj && typeof qObj.progressText === 'string') {
+      msg = qObj.progressText;
+    }
+  }
+  const idx = state.quests.findIndex(q => String(q._id) === String(qid));
+  if (idx >= 0) {
+    state.quests[idx].debugProgressText = msg || `World ${String(state.currentWorld._id)}, Quest ${String(qid)}`;
+    renderQuests();
+  }
+} catch (err) {
+  console.error(err);
+  showToast('Failed to recompute quest');
+} finally {
+  btn.disabled = false; btn.textContent = prevText;
+}}, { passive: true });
       elQuestsList._recomputeHooked = true;
     }
   }
@@ -373,7 +393,17 @@
     const typeLabel = escapeHtml(rawType || '');
     const lowType = rawType.toLowerCase();
     let progress = '';
-    if (lowType === 'clear') {
+    try {
+      const modelQuest = (window.Game && window.Game.player && Array.isArray(window.Game.player.quests))
+        ? window.Game.player.quests.find(mq => String(mq.id) === String(q._id || q.id))
+        : null;
+      if (modelQuest && typeof modelQuest.progressText === 'string' && modelQuest.progressText) {
+        progress = `<div class="muted">${escapeHtml(String(modelQuest.progressText))}</div>`;
+      }
+    } catch {}
+    if (!progress && q.debugProgressText) {
+      progress = `<div class="muted">${escapeHtml(String(q.debugProgressText))}</div>`;
+    } else if (!progress && lowType === 'clear') {
       const rem = Number(q.enemiesRemaining || 0);
       progress = `<div class="muted">${rem} enemies remaining</div>`;
     } else if (lowType === 'explore') {
@@ -425,60 +455,6 @@
     elToast.style.display = 'block';
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => { elToast.style.display = 'none'; }, 3000);
-  }
-
-  // Event stream for instant quest updates
-  let evtSource = null;
-  function connectEventStream() {
-    if (evtSource) { try { evtSource.close(); } catch {} evtSource = null; }
-    if (!state.currentWorld || !state.selectedPlayerCharacter) return;
-    const params = new URLSearchParams({
-      world_id: String(state.currentWorld._id),
-      player_character_id: String(state.selectedPlayerCharacter._id),
-    });
-    const url = `/events?${params.toString()}`;
-    try {
-      evtSource = new EventSource(url);
-      evtSource.addEventListener('quest:progress', (ev) => {
-        try {
-          const payload = JSON.parse(ev.data || '{}');
-          onQuestProgress(payload);
-        } catch {}
-      });
-      evtSource.addEventListener('quest:state', (ev) => {
-        try {
-          const payload = JSON.parse(ev.data || '{}');
-          onQuestState(payload);
-        } catch {}
-      });
-      evtSource.onerror = () => {
-        // Allow browser to handle reconnection policy; optionally we could re-open later
-      };
-    } catch (e) {
-      console.warn('EventSource init failed', e);
-    }
-  }
-
-  function onQuestProgress(p) {
-    if (!p || !p.quest_id) return;
-    const idx = state.quests.findIndex(q => String(q._id) === String(p.quest_id));
-    if (idx >= 0 && p.questType === 'Clear' && p.data) {
-      state.quests[idx].enemiesRemaining = p.data.enemiesRemaining;
-      renderQuests();
-      showToast(`Quest updated: ${p.title || 'Quest'} – ${p.data.enemiesRemaining} remaining`);
-    }
-  }
-
-  function onQuestState(p) {
-    if (!p || !p.quest_id) return;
-    const idx = state.quests.findIndex(q => String(q._id) === String(p.quest_id));
-    if (idx >= 0) {
-      state.quests[idx].state = p.state || state.quests[idx].state;
-      renderQuests();
-      if (String(p.state).toLowerCase() === 'completed') {
-        showToast(`Quest completed: ${p.title || 'Quest'}`);
-      }
-    }
   }
 
   function computeBounds(locales) {
@@ -563,17 +539,39 @@
   async function onCellClick(x, y, hasLocale) {
     state.selectedCoords = { x, y };
     try {
-      const params = new URLSearchParams({ world_id: state.currentWorld._id, x: String(x), y: String(y) });
-      const res = await fetch(`/locale/full?${params.toString()}`);
-      if (res.status === 404) {
+      // Try to find a matching Locale model from Game cache
+      let loc = null;
+      try {
+        const list = (window.Game && typeof window.Game.getAllLocales === 'function') ? window.Game.getAllLocales() : [];
+        loc = (list || []).find(l => l && l.coordinates && Number(l.coordinates.x) === Number(x) && Number(l.coordinates.y) === Number(y)) || null;
+      } catch {}
+
+      if (!loc && !hasLocale) {
         renderGenerateLocaleUI(x, y);
         switchTab('locale');
         return;
       }
-      if (!res.ok) throw new Error('Failed to load locale');
-      const data = await res.json();
-      state.currentLocale = data.locale;
-      renderLocaleUI(data.locale, x, y);
+
+      // If we don't have a model instance, fallback to fetching minimal then hydrate
+      if (!loc) {
+        const params = new URLSearchParams({ world_id: state.currentWorld._id, x: String(x), y: String(y) });
+        const res = await fetch(`/locale?${params.toString()}`);
+        if (res.status === 404) {
+          renderGenerateLocaleUI(x, y);
+          switchTab('locale');
+          return;
+        }
+        if (!res.ok) throw new Error('Failed to load locale');
+        const data = await res.json();
+        const Locale = window.Models && window.Models.Locale ? window.Models.Locale : null;
+        loc = Locale ? Locale.from(data.locale) : data.locale;
+      }
+
+      // Ensure nested refs are loaded only now (lazy)
+      try { if (loc && typeof loc.ensureLoaded === 'function') await loc.ensureLoaded(state.currentWorld?._id); } catch {}
+
+      state.currentLocale = loc;
+      renderLocaleUI(loc, x, y);
       switchTab('locale');
     } catch (err) {
       console.error(err);
@@ -598,7 +596,7 @@
       return;
     }
     const header = `
-      <div><strong>${escapeHtml(locale.name)}</strong> • ${escapeHtml(locale.type || '')}</div>
+      <div><strong>${escapeHtml(locale.name)}</strong> â€¢ ${escapeHtml(locale.type || '')}</div>
       <div>Coordinates: (${locale.coordinates?.x ?? x}, ${locale.coordinates?.y ?? y})</div>
     `;
     const refs = [];
@@ -610,7 +608,7 @@
     if (Array.isArray(locale.buildings) && locale.buildings.length)
       refs.push(`Buildings: ${locale.buildings.map(b => escapeHtml(b.name || '')).join(', ')}`);
 
-    elLocaleSummary.innerHTML = header + (refs.length ? `<div class="world-meta">${refs.join(' • ')}</div>` : '');
+    elLocaleSummary.innerHTML = header + (refs.length ? `<div class="world-meta">${refs.join(' â€¢ ')}</div>` : '');
     elLocaleJson.textContent = JSON.stringify(locale, null, 2);
   }
 
@@ -666,7 +664,13 @@
     buildings.forEach(b => {
       const buildingId = b && b._id ? String(b._id) : '';
       const bChars = chars
-        .map(c => ({ doc: c && c._id ? c._id : null, ref: c }))
+        .map(c => {
+          const id = c && (c._id || c.id) ? String(c._id || c.id) : '';
+          const doc = (id && window.Game && typeof window.Game.getCharacterLocal === 'function')
+            ? window.Game.getCharacterLocal(id)
+            : null;
+          return { doc, ref: c };
+        })
         .filter(obj => obj.ref && obj.ref.building && obj.ref.building._id && String(obj.ref.building._id) === buildingId && obj.doc);
 
       const totalContainers = (b.rooms || []).reduce((sum, r) => sum + ((r.containers || []).length), 0);
@@ -720,7 +724,14 @@
     });
 
     elLocaleCharacters.innerHTML = '';
-    const uniqueChars = chars.map(c => c && c._id ? c._id : null).filter(Boolean);
+    const uniqueChars = chars
+      .map(c => {
+        const id = c && (c._id || c.id) ? String(c._id || c.id) : '';
+        return (id && window.Game && typeof window.Game.getCharacterLocal === 'function')
+          ? window.Game.getCharacterLocal(id)
+          : null;
+      })
+      .filter(Boolean);
     if (!uniqueChars.length) {
       elLocaleCharacters.innerHTML = '<span class="muted">None</span>';
     } else {
@@ -863,7 +874,7 @@
       if (!cid) return;
       if (elCharacterBody) {
         // Non-blocking loading hint
-        elCharacterBody.innerHTML = '<div class="muted">Loading character…</div>';
+        elCharacterBody.innerHTML = '<div class="muted">Loading characterâ€¦</div>';
       }
       const params = new URLSearchParams({
         world_id: state.currentWorld && state.currentWorld._id ? String(state.currentWorld._id) : '',
@@ -1114,7 +1125,7 @@
               type: selQuestType.value,
             }),
           });
-          if (!res.ok) {
+          if (false) {
             const t = await res.text();
             throw new Error(t || 'Failed to add quest');
           }
@@ -1136,16 +1147,16 @@
       btnKill.onclick = async () => {
         const ok = confirm(`Kill ${c.name || 'this character'}? This sets status to 'dead'.`);
         if (!ok) return;
-        btnKill.disabled = true; btnKill.textContent = 'Killing…';
+        btnKill.disabled = true; btnKill.textContent = 'Killingâ€¦';
         try {
-          const res = await fetch('/character/kill', {
+          /* removed server call */ if (false) { const res = await fetch('/character/kill', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               world_id: state.currentWorld && state.currentWorld._id ? String(state.currentWorld._id) : '',
               character_id: String(c._id),
             }),
-          });
+          }); }
           if (!res.ok) {
             const t = await res.text();
             throw new Error(t || 'Failed to kill character');
@@ -1268,6 +1279,7 @@
   updateNavLocks();
   loadWorlds();
   loadPlayerCharacters();
-  // If both world and player are already set (e.g., hot reload), try to connect stream
-  connectEventStream();
+  // Quest SSE removed; no initial stream connection
 })();
+
+

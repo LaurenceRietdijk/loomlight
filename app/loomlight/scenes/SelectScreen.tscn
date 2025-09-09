@@ -1,0 +1,54 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/SelectScreen.gd" id="1_m0tju"]
+
+[node name="SelectScreen" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_m0tju")
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="CenterContainer"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="Title" type="Label" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "Select World & Character"
+horizontal_alignment = 1
+size_flags_horizontal = 4
+
+[node name="HBox" type="HBoxContainer" parent="CenterContainer/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="WorldSelect" type="OptionButton" parent="CenterContainer/VBox/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "World"
+
+[node name="CharacterSelect" type="OptionButton" parent="CenterContainer/VBox/HBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+tooltip_text = "Character"
+
+[node name="PlayButton" type="Button" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "Play"
+
+[node name="BackButton" type="Button" parent="CenterContainer/VBox"]
+layout_mode = 2
+text = "Back"
+

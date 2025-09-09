@@ -132,11 +132,13 @@ class QuestDAL {
     // Count current active NPCs in the locale
     const count = await CharacterDAL.countActiveByLocale(world_id, locale_id);
 
-    // Find all accepted Clear quests for this locale
+    // Find all accepted Clear quests for this locale (support legacy field 'type')
     const quests = await QuestModel.find({
-      questType: "Clear",
-      state: { $in: ["acepted", "completed"] },
-      targetLocale: locale_id,
+      $and: [
+        { $or: [{ questType: "Clear" }, { type: "Clear" }] },
+        { state: { $in: ["acepted", "completed"] } },
+        { targetLocale: locale_id },
+      ],
     }).exec();
 
     const updated = [];
@@ -162,7 +164,9 @@ class QuestDAL {
     const QuestModel = ensureQuestModel(db);
     const CharacterDAL = require("./characterDAL");
     const quest = await QuestModel.findById(quest_id).exec();
-    if (!quest || quest.questType !== "Clear" || !quest.targetLocale) return quest;
+    if (!quest) return quest;
+    const qType = String(quest.questType || quest.type || '').toLowerCase();
+    if (qType !== 'clear' || !quest.targetLocale) return quest;
     const count = await CharacterDAL.countActiveByLocale(world_id, quest.targetLocale);
     quest.enemiesRemaining = Math.max(0, count);
     if (quest.enemiesRemaining === 0) quest.state = "completed";

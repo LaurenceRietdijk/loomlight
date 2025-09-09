@@ -22,7 +22,6 @@ app.use("/quest", require("./routes/quest"));
 app.use("/character", require("./routes/character"));
 app.use("/playerCharacter", require("./routes/playerCharacter"));
 app.use("/activePlayerCharacter", require("./routes/activePlayerCharacter"));
-app.use("/events", require("./routes/events"));
 
 
 app.listen(PORT, () => {
