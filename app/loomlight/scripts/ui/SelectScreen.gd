@@ -1,5 +1,10 @@
 extends Control
 
+const World = preload("res://scripts/models/World.gd")
+const PlayerCharacter = preload("res://scripts/models/PlayerCharacter.gd")
+const WorldDAL = preload("res://scripts/dal/WorldDAL.gd")
+const CharacterDAL = preload("res://scripts/dal/CharacterDAL.gd")
+
 @onready var world_option: OptionButton = $"CenterContainer/VBox/HBox/WorldSelect"
 @onready var character_option: OptionButton = $"CenterContainer/VBox/HBox/CharacterSelect"
 @onready var play_button: Button = $"CenterContainer/VBox/PlayButton"

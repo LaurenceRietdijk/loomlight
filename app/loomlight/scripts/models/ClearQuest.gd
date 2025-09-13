@@ -3,7 +3,7 @@ extends "res://scripts/models/Quest.gd"
 
 var _subscribed_char_ids: Dictionary = {}
 
-func init(world: World) -> void:
+func init(world) -> void:
     var loc_id := ""
     if target_locale is Dictionary:
         if target_locale.has("_id"):
@@ -27,7 +27,7 @@ func init(world: World) -> void:
                         _subscribed_char_ids[cid] = true
                         ch.state_changed.connect(Callable(self, "_on_character_state_changed").bind(world))
 
-func update_progress(world: World) -> void:
+func update_progress(world) -> void:
     var loc_id := ""
     if target_locale is Dictionary:
         if target_locale.has("_id"):
@@ -53,5 +53,5 @@ func update_progress(world: World) -> void:
     enemies_remaining = count_active
     progress = "%d enemies remaining" % max(0, enemies_remaining)
 
-func _on_character_state_changed(_ch: Character, _old: String, _new: String, world: World) -> void:
+func _on_character_state_changed(_ch: Character, _old: String, _new: String, world) -> void:
     await update_progress(world)

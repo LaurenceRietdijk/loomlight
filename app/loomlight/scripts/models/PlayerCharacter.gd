@@ -1,6 +1,8 @@
 class_name PlayerCharacter
 extends Resource
 
+const World = preload("res://scripts/models/World.gd")
+
 var id: String = ""
 var name: String = "Unnamed"
 var clazz: String = ""

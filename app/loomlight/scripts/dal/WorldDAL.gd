@@ -4,6 +4,7 @@ extends Object
 ## Data Access for Worlds
 
 const PATH_ALL = "/world"
+const World = preload("res://scripts/models/World.gd")
 
 static func _api() -> Node:
     var tree := Engine.get_main_loop() as SceneTree

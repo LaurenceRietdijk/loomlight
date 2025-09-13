@@ -18,10 +18,12 @@ app.use("/world", require("./routes/world"));
 app.use("/admin", require("./routes/admin"));
 app.use("/locale", require("./routes/locale"));
 app.use("/race", require("./routes/race"));
+app.use("/biome", require("./routes/biome"));
 app.use("/quest", require("./routes/quest"));
 app.use("/character", require("./routes/character"));
 app.use("/playerCharacter", require("./routes/playerCharacter"));
 app.use("/activePlayerCharacter", require("./routes/activePlayerCharacter"));
+app.use("/image", require("./routes/image"));
 
 
 app.listen(PORT, () => {

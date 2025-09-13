@@ -132,12 +132,12 @@ func to_dict() -> Dictionary:
 
 # Runtime initialization hook for quest instances.
 # Subclasses may override to set up references, preload data, etc.
-func init(world: World) -> void:
+func init(world) -> void:
     # Base quest has no special runtime setup.
     pass
 
 # Compute or refresh human-readable progress text for this quest.
-func update_progress(world: World) -> void:
+func update_progress(world) -> void:
     progress = progress_text()
 
 

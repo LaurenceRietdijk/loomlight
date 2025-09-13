@@ -21,9 +21,9 @@ func _ready() -> void:
 
 # Example methods
 func reset_game() -> void:
-    print("Game reset")
-    
+	print("Game reset")
+
 func hydrate_locale(locale_id: String) -> Locale:
-    if current_world == null:
-        return null
-    return await current_world.ensure_locale(locale_id)
+	if current_world == null:
+		return null
+	return await current_world.ensure_locale(locale_id)

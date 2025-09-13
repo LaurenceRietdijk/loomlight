@@ -6,6 +6,7 @@ Loomlight/node_modules/
 server/.env
 Loomlight/.env
 server/config/default.json
+server/generated_images/
 
 
 # Ignore build files

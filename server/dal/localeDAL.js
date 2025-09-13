@@ -5,6 +5,7 @@ const FactionSchema = require("../models/faction");
 const CharacterSchema = require("../models/character");
 const BuildingSchema = require("../models/building");
 const ItemSchema = require("../models/item");
+const BiomeSchema = require("../models/biome");
 
 class LocaleDAL {
   /**
@@ -66,6 +67,7 @@ class LocaleDAL {
     db.model("Character", CharacterSchema);
     db.model("Building", BuildingSchema);
     db.model("Item", ItemSchema);
+    db.model("Biome", BiomeSchema);
 
     const LocaleModel = db.model("Locale", LocaleSchema);
 
@@ -74,6 +76,7 @@ class LocaleDAL {
       "coordinates.y": y,
     })
       .populate("primary_race")
+      .populate("biome")
       .populate("factions._id")
       .populate("characters._id")
       .populate("characters.building")
@@ -109,10 +112,12 @@ class LocaleDAL {
     db.model("Character", CharacterSchema);
     db.model("Building", BuildingSchema);
     db.model("Item", ItemSchema);
+    db.model("Biome", BiomeSchema);
 
     const LocaleModel = db.model("Locale", LocaleSchema);
     const doc = await LocaleModel.findById(locale_id)
       .populate("primary_race")
+      .populate("biome")
       .populate("factions._id")
       .populate("characters._id")
       .populate("characters.building")
@@ -142,10 +147,12 @@ class LocaleDAL {
     db.model("Character", CharacterSchema);
     db.model("Building", BuildingSchema);
     db.model("Item", ItemSchema);
+    db.model("Biome", BiomeSchema);
 
     const LocaleModel = db.model("Locale", LocaleSchema);
     const docs = await LocaleModel.find({ _id: { $in: ids } })
       .populate("primary_race")
+      .populate("biome")
       .populate("factions._id")
       .populate("characters._id")
       .populate("characters.building")

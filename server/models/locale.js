@@ -21,6 +21,7 @@ const LocaleSchema = new mongoose.Schema({
     y: { type: Number, required: true },
   },
   primary_race: { type: mongoose.Schema.Types.ObjectId, ref: "Race" },
+  biome: { type: mongoose.Schema.Types.ObjectId, ref: "Biome" },
   factions: [
     {
       _id: { type: mongoose.Schema.Types.ObjectId, ref: "Faction" },

@@ -1,5 +1,5 @@
 class_name ExploreQuest
 extends "res://scripts/models/Quest.gd"
 
-func update_progress(world: World) -> void:
+func update_progress(world) -> void:
     progress = progress_text()
