@@ -4,14 +4,44 @@ const pixelLabService = require('../services/pixelLabService');
 
 // Placeholder for database lookup.
 async function fetchNextLocaleWithoutImage() {
-  // TODO: Implement DB logic to find the next biome and locale type lacking an image.
+  // Determine the next (biome, locale_type) that is still marked as not generated in DB.
+  // Uses the Biome collection (central DB) and the Locale type enum to drive iteration.
+  const BiomeDAL = require('../dal/biomeDAL');
+  const LocaleSchema = require('../models/locale');
+
+  // Order locale types deterministically
+  const localeTypes = (LocaleSchema.path('type')?.enumValues || []).slice();
+  if (!localeTypes.length) return null;
+
+  // Fetch biomes (global across worlds) and iterate deterministically by _id
+  const biomes = await BiomeDAL.getBiomes();
+  if (!biomes || !biomes.length) return null;
+
+  const sorted = [...biomes].sort((a, b) => String(a._id).localeCompare(String(b._id)));
+
+  for (const biome of sorted) {
+    const biomeId = String(biome._id);
+    const biomeDesc = String(biome.description || biome.name || '');
+
+    // Support both Map and plain-object shapes for locales
+    const localesField = biome.locales;
+    const isMap = localesField && typeof localesField.get === 'function';
+
+    for (const locale_type of localeTypes) {
+      const flag = isMap ? localesField.get(locale_type) : localesField?.[locale_type];
+      const isDone = Boolean(flag);
+      if (!isDone) {
+        return { biome_id: biomeId, biome_description: biomeDesc, locale_type };
+      }
+    }
+  }
+
   return null;
 }
 
 /**
  * Generates an image for the next locale type missing from the biomes.
- * The image will be saved to web/images/locale/<biome_id>/<locale_type>.png
- * and uses a reference image to maintain proper dimensions.
+ * The image will be saved to web/images/locale/<biome_id>/<biome_id>_<locale_type>.png.
  */
 async function generateNextLocaleImage() {
   const next = await fetchNextLocaleWithoutImage();
@@ -21,16 +51,20 @@ async function generateNextLocaleImage() {
 
   const { biome_id, biome_description, locale_type } = next;
 
-  const prompt = `${biome_description} ${locale_type}. Create an isometric hex tile for a world map in a video game.`;
+  const prompt = `An isometric square slab map tile for a world map, perfectly geometric with sharp pixel-art edges.  
+The tile shows a flat surface viewed in isometric projection, with clear 2:1 pixel ratio perspective.  
+Biome: ["${biome_description}"].  
+Content: ["${locale_type}"].
+Edges: [render as material, e.g. “brown soil with small stone flecks”]  
 
-  let referenceImagePath =
-    process.env.TILE_REFERENCE_IMAGE ||
-    // __dirname = server/jobs -> up twice to project root, then web/images
-    path.join(__dirname, '..', '..', 'web', 'images', 'reference.png');
-  if (!fs.existsSync(referenceImagePath)) {
-    referenceImagePath = undefined;
-  }
+The tile must remain a clean isometric square so it can align seamlessly with other tiles.  
+Keep edges sharp and consistent.  
+Allow small decorative elements (trees, rocks, buildings) to extend slightly above the top edge of the tile, overlapping the tile behind, but keep the left, right, and bottom edges within the square for perfect tiling.  
 
+Style: clean pixel art, limited palette, crisp outlines, with lighting from the top-left.  
+Do not use gradients or blurry textures.`;
+
+  // Keep directory path the same, but include biome_id in the filename
   const outputFilePath = path.join(
     __dirname,
     '..',
@@ -39,57 +73,21 @@ async function generateNextLocaleImage() {
     'images',
     'locale',
     String(biome_id),
-    `${locale_type}.png`
+    `${biome_id}_${locale_type}.png`
   );
 
-  await pixelLabService.generateImage(prompt, {
-    referenceImagePath,
-    outputFilePath,
-  });
+  await pixelLabService.generateImage(prompt, { outputFilePath });
+
+  // Mark as generated in DB only after successful write
+  const BiomeDAL = require('../dal/biomeDAL');
+  try {
+    await BiomeDAL.setLocaleFlag(biome_id, locale_type, true);
+  } catch (e) {
+    // Best-effort update; log and proceed
+    console.error('[localeImageJob] Failed to set locale flag in DB:', e);
+  }
 
   return outputFilePath;
 }
 
-/**
- * Generates an image for a specific biome/locale tuple.
- * This helps testing while DB lookup is a stub.
- * @param {Object} params
- * @param {string|number} params.biome_id
- * @param {string} params.biome_description
- * @param {string} params.locale_type
- * @returns {Promise<string>} output file path
- */
-async function generateLocaleImageFor({ biome_id, biome_description, locale_type }) {
-  if (!biome_id || !biome_description || !locale_type) {
-    throw new Error('biome_id, biome_description and locale_type are required');
-  }
-
-  const prompt = `${biome_description} ${locale_type}. Create an isometric hex tile for a world map in a video game.`;
-
-  let referenceImagePath =
-    process.env.TILE_REFERENCE_IMAGE ||
-    path.join(__dirname, '..', '..', 'web', 'images', 'reference.png');
-  if (!fs.existsSync(referenceImagePath)) {
-    referenceImagePath = undefined;
-  }
-
-  const outputFilePath = path.join(
-    __dirname,
-    '..',
-    '..',
-    'web',
-    'images',
-    'locale',
-    String(biome_id),
-    `${locale_type}.png`
-  );
-
-  await pixelLabService.generateImage(prompt, {
-    referenceImagePath,
-    outputFilePath,
-  });
-
-  return outputFilePath;
-}
-
-module.exports = { generateNextLocaleImage, generateLocaleImageFor };
+module.exports = { generateNextLocaleImage };

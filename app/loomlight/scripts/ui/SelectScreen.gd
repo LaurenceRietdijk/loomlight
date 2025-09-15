@@ -1,9 +1,9 @@
 extends Control
 
-const World = preload("res://scripts/models/World.gd")
-const PlayerCharacter = preload("res://scripts/models/PlayerCharacter.gd")
-const WorldDAL = preload("res://scripts/dal/WorldDAL.gd")
-const CharacterDAL = preload("res://scripts/dal/CharacterDAL.gd")
+const WORLD = preload("res://scripts/models/World.gd")
+const PLAYER_CHARACTER = preload("res://scripts/models/PlayerCharacter.gd")
+const WORLD_DAL = preload("res://scripts/dal/WorldDAL.gd")
+const CHARACTER_DAL = preload("res://scripts/dal/CharacterDAL.gd")
 
 @onready var world_option: OptionButton = $"CenterContainer/VBox/HBox/WorldSelect"
 @onready var character_option: OptionButton = $"CenterContainer/VBox/HBox/CharacterSelect"
@@ -49,7 +49,7 @@ func _on_play_pressed() -> void:
 
 func _load_worlds() -> void:
 	world_option.clear()
-	_worlds = await WorldDAL.fetch_all()
+	_worlds = await WORLD_DAL.fetch_all()
 	for i in _worlds.size():
 		world_option.add_item(_worlds[i].name, i)
 	if _worlds.size() > 0:
@@ -59,7 +59,7 @@ func _load_worlds() -> void:
 
 func _load_characters(world: World) -> void:
 	character_option.clear()
-	_characters = await CharacterDAL.fetch_by_world(world.id)
+	_characters = await CHARACTER_DAL.fetch_by_world(world.id)
 	for i in _characters.size():
 		character_option.add_item(_characters[i].name, i)
 	if _characters.size() > 0:

@@ -95,6 +95,8 @@
         x: Number((init.coordinates && init.coordinates.x) || 0),
         y: Number((init.coordinates && init.coordinates.y) || 0),
       };
+      // Biome: may be an id string or a populated object { _id, name, description, locales }
+      this.biome = init.biome || null;
       // References (ids or embedded objects depending on payload)
       this.primary_race = init.primary_race || null; // may be id or object
       this.factions = Array.isArray(init.factions) ? init.factions : [];
@@ -114,6 +116,17 @@
       // If payload already contains nested buildings, materialize them
       const hasNestedBuildings = Array.isArray(data.buildings) && data.buildings.length && typeof data.buildings[0] === 'object';
       const buildings = hasNestedBuildings ? data.buildings.map(Building.from) : [];
+      // Normalize biome (id or object)
+      let biome = null;
+      if (data.hasOwnProperty('biome')) {
+        const b = data.biome;
+        if (b && typeof b === 'object') {
+          // Keep a light representation if present
+          biome = { _id: String(b._id || b.id || ''), name: b.name || '', description: b.description || '', locales: b.locales || {} };
+        } else if (b) {
+          biome = String(b);
+        }
+      }
       // Normalize characters to id references only to avoid duplicating full docs
       const chars = Array.isArray(data.characters) ? data.characters.map((c) => {
         const id = c && typeof c === 'object' ? String((c._id && (c._id._id || c._id)) || c._id || c.id || c) : String(c || '');
@@ -130,6 +143,7 @@
         type: data.type || '',
         description: data.description || '',
         coordinates: data.coordinates || { x: 0, y: 0 },
+        biome,
         primary_race: data.primary_race || null,
         factions: Array.isArray(data.factions) ? data.factions : [],
         characters: chars,
@@ -166,6 +180,7 @@
           }
         } catch {}
         // Copy hydrated fields onto this instance
+        this.biome = full.biome; // populated object if available
         this.primary_race = full.primary_race;
         this.factions = full.factions;
         this.characters = full.characters; // ids + light refs only

@@ -5,6 +5,7 @@ const FactionSchema = require("../models/faction");
 const LocaleSchema = require("../models/locale");
 const BuildingSchema = require("../models/building");
 const ItemSchema = require("../models/item");
+const { ensureItemModel } = require("../models/item");
 const { QuestBaseSchema } = require("../models/quest");
 
 class CharacterDAL {
@@ -117,7 +118,7 @@ class CharacterDAL {
     db.model("Faction", FactionSchema);
     db.model("Locale", LocaleSchema);
     db.model("Building", BuildingSchema);
-    db.model("Item", ItemSchema);
+    ensureItemModel(db);
     db.model("Character", CharacterSchema);
 
     // ✅ Register Quest base + all discriminators

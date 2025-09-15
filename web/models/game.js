@@ -9,6 +9,9 @@
       this.player = null;
       this.locales = []; // array of Locale instances
       this.localesById = {}; // id -> Locale
+      // Biomes cache (global)
+      this.biomes = [];
+      this.biomesById = {};
       // Characters cache (raw docs as returned by API)
       this.characters = [];
       this.charactersById = {}; // id -> Character instance
@@ -19,6 +22,7 @@
     clear() { this.player = null; this.clearLocales(); this.clearCharacters(); }
 
     clearLocales() { this.locales = []; this.localesById = {}; }
+    clearBiomes() { this.biomes = []; this.biomesById = {}; }
     setLocalesFromArray(arr) {
       const Locale = (window.Models && window.Models.Locale) ? window.Models.Locale : null;
       this.clearLocales();
@@ -32,8 +36,23 @@
       });
       return this.locales;
     }
+    setBiomesFromArray(arr) {
+      const Biome = (window.Models && window.Models.Biome) ? window.Models.Biome : null;
+      this.clearBiomes();
+      (Array.isArray(arr) ? arr : []).forEach((raw) => {
+        const b = Biome ? Biome.from(raw) : raw;
+        const id = b && (b.id || String(raw?._id || ''));
+        if (id) {
+          this.biomesById[String(id)] = b;
+          this.biomes.push(b);
+        }
+      });
+      return this.biomes;
+    }
     getLocale(id) { return this.localesById ? this.localesById[String(id)] : undefined; }
     getAllLocales() { return Array.isArray(this.locales) ? this.locales.slice() : []; }
+    getBiome(id) { return this.biomesById ? this.biomesById[String(id)] : undefined; }
+    getAllBiomes() { return Array.isArray(this.biomes) ? this.biomes.slice() : []; }
 
     // --- Characters (lazy, on-demand fetch + cache) ---
     clearCharacters() { this.characters = []; this.charactersById = {}; }

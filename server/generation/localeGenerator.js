@@ -1,14 +1,11 @@
 const mongoose = require("mongoose");
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const LocaleDAL = require("../dal/localeDAL");
 const characterDAL = require("../dal/characterDAL");
 const CharacterGenerator = require("./characterGenerator");
 const BuildingGenerator = require("./buildingGenerator");
 const RaceDAL = require("../dal/raceDAL");
-
-const openai = new OpenAI({
-  apiKey: process.env.API_KEY,
-});
+const BiomeDAL = require("../dal/biomeDAL");
 
 class LocaleGenerator {
   /**
@@ -93,29 +90,19 @@ It has a population of about ${population} and contains the following buildings:
     )}.
 Describe the locale as immersive, grounded, and contextually aware.`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
+    const generatedLocale = await gpt.chatJSON(
+      [
         {
           role: "system",
-          content: `You are an AI that generates JSON data for locales in a medieval fantasy world.
-Your response **must be valid JSON and contain no extra text**.
-
-Use this format:
-{
-  "name": "Locale Name",
-  "type": "Camp", "Hamlet", "Village", "Wilderness", "Cave", "Dungeon",
-  "description": "A short but immersive description of the location.",
-  "special_features": ["A list of unique landmarks, events, or history tied to this place."]
-}`,
+          content:
+            "You are an AI that generates JSON data for locales in a medieval fantasy world.\n" +
+            "Your response must be valid JSON and contain no extra text.\n\n" +
+            "Use this format:\n{\n  \"name\": \"Locale Name\",\n  \"type\": \"Camp\", \"Hamlet\", \"Village\", \"Wilderness\", \"Cave\", \"Dungeon\",\n  \"description\": \"A short but immersive description of the location.\",\n  \"special_features\": [\"A list of unique landmarks, events, or history tied to this place.\"]\n}",
         },
         { role: "user", content: prompt },
       ],
-      max_tokens: 300,
-      temperature: 0.8,
-    });
-
-    const generatedLocale = JSON.parse(completion.choices[0].message.content);
+      { model: "gpt-3.5-turbo", max_tokens: 300, temperature: 0.8 }
+    );
 
     // Choose a primary race
     const races = await RaceDAL.getRaces(world_id);
@@ -156,6 +143,19 @@ Use this format:
       special_features: generatedLocale.special_features || [],
       buildings: [],
     };
+
+    // Assign a biome randomly from available biomes (global), not via GPT
+    try {
+      const biomes = await BiomeDAL.getBiomes();
+      if (Array.isArray(biomes) && biomes.length) {
+        const random = biomes[Math.floor(Math.random() * biomes.length)];
+        if (random && random._id) {
+          localeData.biome = random._id;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not assign biome to locale:", e?.message || e);
+    }
 
     // If this is a camp, we follow a simplified flow: no buildings or families
     if (locale_type.toLowerCase() === "camp") {

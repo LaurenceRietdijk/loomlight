@@ -1,79 +1,60 @@
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const BiomeDAL = require("../dal/biomeDAL");
 const LocaleSchema = require("../models/locale");
 
-const openai = new OpenAI({
-  apiKey: process.env.API_KEY,
-});
-
 class BiomeGenerator {
   /**
-   * Generates biomes for a given world.
+   * Generate a single biome for a given world.
+   * Uses GPT only for name and description; locales are programmatic.
    * @param {Object} world - The world object containing the world description.
-   * @param {number} count - Number of biomes to generate.
-   * @returns {Promise<Object[]>} - Array of inserted biomes.
+   * @returns {Promise<Object>} - Inserted biome document.
    */
-  static async generateBiomes(world, count = 3) {
-    console.log(`Generating ${count} biomes for world ${world.name}...`);
+  static async generateBiome(world = null) {
+    if (world && world.name) {
+      console.log(`Generating 1 biome with context from world ${world.name}...`);
+    } else {
+      console.log("Generating 1 biome (no world context)...");
+    }
 
-    const worldDescription =
-      world.worldBuilding || world.description || "No description provided.";
+    const worldDescription = world
+      ? world.worldBuilding || world.description || "No description provided."
+      : "";
 
-    const localeTypes = LocaleSchema.path("type").enumValues.join(", ");
-
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
+    // Ask GPT only for name and description of a single biome
+    const biomeInfo = await gpt.chatJSON(
+      [
         {
           role: "system",
-          content: `You are an AI that generates JSON data for biomes in a fantasy world.
-Your response **must be valid JSON and contain no extra text**.
-
-All keys under "locales" must be one of: ${localeTypes}.
-
-Each biome should follow this structure:
-{
-  "name": "Biome Name",
-  "description": "Biome description",
-  "locales": {"Town": true}
-}`,
+          content:
+            "You generate a SINGLE land surface biome for a world map as compact JSON. Output ONLY a JSON object with exactly two string fields: name and description. No arrays, no extra fields, no prose. The biome must be a natural, terrestrial surface environment (e.g., forest, desert, grassland, tundra, mountains, wetlands, savanna, badlands). Strictly exclude underground, underwater/reef, cave/cavern, interior/dungeon, aerial/sky/atmospheric, extra-dimensional, or space biomes. Do not return man-made locations (e.g., cities, ruins).",
         },
         {
           role: "user",
-          content: `Generate ${count} biomes for the world **${world.name}**.\n\n### World Context:\n${worldDescription}`,
+          content: world
+            ? `Create one land surface biome for the world "${world.name}" suitable for a world map. It must be natural and terrestrial (no underground, underwater, aerial/sky, interior/dungeon, extra-dimensional, or space biomes; no man-made locations). Return only {name, description}.\n\nWorld context:\n${worldDescription}`
+            : `Create one land surface biome suitable for a world map. It must be natural and terrestrial (no underground, underwater, aerial/sky, interior/dungeon, extra-dimensional, or space biomes; no man-made locations). Return only {name, description}.` ,
         },
       ],
-      max_tokens: 4096,
-      temperature: 0.8,
-    });
+      { model: "gpt-3.5-turbo", max_tokens: 512, temperature: 0.8 }
+    );
 
-    let generatedBiomes;
-    try {
-      let rawResponse = completion.choices[0].message.content.trim();
-      rawResponse = rawResponse.replace(/^```json\s*|```$/g, "");
-      if (!rawResponse.startsWith("[")) {
-        rawResponse = `[${rawResponse}]`;
-      }
-      rawResponse = rawResponse
-        .replace(/,\s*([\]}])/g, "$1")
-        .replace(/}\s*{/g, "}, {")
-        .replace(/]\s*\[/g, "],[");
-      console.log("Cleaned JSON before parsing:", rawResponse);
-      generatedBiomes = JSON.parse(rawResponse);
-    } catch (error) {
-      console.error("Failed to parse generated biomes:", error);
-      console.error("Raw response:", completion.choices[0].message.content);
-      throw new Error("Biome generation failed due to invalid JSON format.");
+    if (!biomeInfo || typeof biomeInfo !== "object") {
+      throw new Error("GPT did not return a biome object");
     }
 
-    let insertedBiomes = [];
-    for (let biome of generatedBiomes) {
-      let insertedBiome = await BiomeDAL.insertBiome(world._id.toString(), biome);
-      insertedBiomes.push(insertedBiome);
-    }
+    const name = (biomeInfo.name || "Unnamed Biome").toString();
+    const description = (biomeInfo.description || "").toString();
 
-    console.log("Biomes successfully generated.");
-    return insertedBiomes;
+    // Build locales map from enum types with all values false
+    const localeTypes = LocaleSchema.path("type").enumValues;
+    const locales = {};
+    for (const t of localeTypes) locales[t] = false;
+
+    const biomeData = { name, description, locales };
+    const inserted = await BiomeDAL.insertBiome(biomeData);
+
+    console.log("Biome successfully generated.");
+    return inserted;
   }
 }
 

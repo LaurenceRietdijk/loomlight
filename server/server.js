@@ -26,6 +26,14 @@ app.use("/activePlayerCharacter", require("./routes/activePlayerCharacter"));
 app.use("/image", require("./routes/image"));
 
 
+// Start background schedulers (e.g., locale image generator)
+try {
+  const { startSchedulers } = require('./scheduler');
+  startSchedulers();
+} catch (e) {
+  console.error('Failed to start schedulers:', e);
+}
+
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

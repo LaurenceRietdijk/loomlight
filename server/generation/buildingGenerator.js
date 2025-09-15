@@ -1,8 +1,6 @@
 const mongoose = require("mongoose");
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const BuildingDAL = require("../dal/buildingDAL");
-
-const openai = new OpenAI({ apiKey: process.env.API_KEY });
 
 class BuildingGenerator {
   /**
@@ -44,18 +42,14 @@ Output JSON shape (array; same length/order as requested types):
 
     let parsedArray = [];
     try {
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
+      const content = await gpt.chatJSON(
+        [
           { role: "system", content: systemMsg },
           { role: "user", content: userMsg },
         ],
-        temperature: 0.8,
-        max_tokens: 2000,
-      });
-
-      const content = completion.choices?.[0]?.message?.content || "[]";
-      parsedArray = JSON.parse(content);
+        { model: "gpt-3.5-turbo", temperature: 0.8, max_tokens: 2000 }
+      );
+      parsedArray = Array.isArray(content) ? content : [];
       if (!Array.isArray(parsedArray)) throw new Error("Response is not an array");
     } catch (e) {
       console.error("Batched AI building generation failed:", e?.message || e);

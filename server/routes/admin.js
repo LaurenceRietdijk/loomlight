@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const WorldDAL = require("../dal/worldDAL");
 const getDatabaseConnection = require("../config/worldDBs");
+const { generateNextLocaleImage } = require("../jobs/localeImageJob");
 
 const router = express.Router();
 
@@ -49,3 +50,25 @@ router.delete("/dump", async (req, res) => {
 });
 
 module.exports = router;
+
+/**
+ * POST /admin/jobs/locale-image/trigger
+ * Triggers the locale-image generation job once, like a scheduler tick.
+ * Does not accept or use any parameters; the job decides what to generate.
+ */
+router.post("/jobs/locale-image/trigger", async (req, res) => {
+  try {
+    const outPath = await generateNextLocaleImage();
+    if (!outPath) {
+      return res
+        .status(200)
+        .json({ message: "No pending locale image to generate" });
+    }
+    return res.status(200).json({ message: "Image generated", path: outPath });
+  } catch (error) {
+    console.error("Error triggering locale image job:", error);
+    return res
+      .status(500)
+      .json({ error: "Failed to trigger locale image job" });
+  }
+});

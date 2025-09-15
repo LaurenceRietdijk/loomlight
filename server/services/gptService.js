@@ -9,7 +9,8 @@ const OpenAI = require("openai");
  */
 class GPTService {
   constructor() {
-    this.client = new OpenAI({ apiKey: process.env.API_KEY });
+    const apiKey = process.env.API_KEY || process.env.OPENAI_API_KEY;
+    this.client = new OpenAI({ apiKey });
   }
 
   /**
@@ -36,16 +37,54 @@ class GPTService {
 
   /**
    * Convenience method that runs a chat completion and parses
-   * the result as JSON. The prompt **must** instruct the model
-   * to return valid JSON for this to succeed.
+   * the result as JSON. Attempts to be resilient to common
+   * formatting artifacts (e.g., Markdown code fences).
+   *
+   * The prompt should instruct the model to return valid JSON.
    *
    * @param {Array<Object>} messages - Chat messages for the model.
    * @param {Object} options - Completion options.
-   * @returns {Promise<Object>} Parsed JSON response.
+   * @returns {Promise<unknown>} Parsed JSON response.
    */
   async chatJSON(messages, options = {}) {
     const content = await this.chat(messages, options);
-    return JSON.parse(content);
+    return GPTService.parseJSONLoose(content);
+  }
+
+  /**
+   * Parse JSON robustly from a model response by trying several
+   * common patterns (full string, fenced code block, substring from
+   * first bracket). Throws on failure.
+   * @param {string} text
+   * @returns {unknown}
+   */
+  static parseJSONLoose(text) {
+    if (!text) throw new Error("Empty model response");
+    const t = String(text).trim();
+    const candidates = [t];
+    // Extract fenced code block if present
+    const fence = t.match(/```(?:json|JSON)?\s*([\s\S]*?)\s*```/);
+    if (fence && fence[1]) candidates.push(fence[1].trim());
+    // From first JSON-looking bracket
+    const firstArr = t.indexOf("[");
+    const firstObj = t.indexOf("{");
+    const firstBrace =
+      firstArr === -1 && firstObj === -1
+        ? -1
+        : firstArr === -1
+        ? firstObj
+        : firstObj === -1
+        ? firstArr
+        : Math.min(firstArr, firstObj);
+    if (firstBrace !== -1) candidates.push(t.slice(firstBrace));
+    for (const c of candidates) {
+      try {
+        return JSON.parse(c);
+      } catch (_) {}
+    }
+    const err = new Error("Failed to parse JSON from model response");
+    err.raw = t;
+    throw err;
   }
 }
 

@@ -1,5 +1,5 @@
 // Quest generator with initial implementation for "Clear" quests.
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const mongoose = require("mongoose");
 const QuestDAL = require("../dal/questDAL");
 const CharacterDAL = require("../dal/characterDAL");
@@ -8,8 +8,6 @@ const { QUEST_TYPES, QUEST_STATES } = require("../models/quest");
 const LocaleSchema = require("../models/locale");
 const getDatabaseConnection = require("../config/worldDBs");
 const LocaleGenerator = require("./localeGenerator");
-
-const openai = new OpenAI({ apiKey: process.env.API_KEY });
 
 // Map quest types to the JSON shape expected in prompts/system messages
 // Keys align with the quest type enum values
@@ -320,32 +318,29 @@ static async #generateClearQuest(world_id, character_id) {
         `Target Camp: ${context.targetCamp.name} at (${context.targetCamp.x}, ${context.targetCamp.y}).\n` +
         `Camp Summary: ${context.targetCamp.description}`;
 
-      const completion = await openai.chat.completions.create({
-        model: "gpt-3.5-turbo",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        max_tokens: 250,
-        temperature: 0.7,
-      });
-
-      const raw = completion?.choices?.[0]?.message?.content?.trim() || "";
       try {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed.title === "string" && typeof parsed.description === "string") {
+        const parsed = await gpt.chatJSON(
+          [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          { model: "gpt-3.5-turbo", max_tokens: 250, temperature: 0.7 }
+        );
+        if (
+          parsed &&
+          typeof parsed.title === "string" &&
+          typeof parsed.description === "string"
+        ) {
           return parsed;
         }
       } catch (_) {
-        // fallthrough to fallback
+        // fall through to fallback below
       }
 
-      // Fallback parsing: try to extract title/description from a loose JSON-like string
-      const titleMatch = raw.match(/\"title\"\s*:\s*\"([^\"]+)\"/i);
-      const descMatch = raw.match(/\"description\"\s*:\s*\"([^]+)\"\s*}?$/i);
       return {
-        title: titleMatch ? titleMatch[1] : "Clear the Nearby Camp",
-        description: descMatch ? descMatch[1] : "Eliminate the hostile presence entrenched in the nearby camp before their raids grow bolder.",
+        title: "Clear the Nearby Camp",
+        description:
+          "Eliminate the hostile presence entrenched in the nearby camp before their raids grow bolder.",
       };
     } catch (err) {
       // eslint-disable-next-line no-console

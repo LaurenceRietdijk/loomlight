@@ -1,0 +1,5 @@
+res://scenes/game.tscn
+res://scripts/ui/dialogue_screen.gd
+res://scripts/ui/game.gd
+res://scripts/ui/loading_screen.gd
+res://scripts/ui/map_view.gd

@@ -36,6 +36,10 @@ size_flags_vertical = 4
 layout_mode = 2
 text = "Start Game"
 
+[node name="OptionsButton" type="Button" parent="CenterContainer/VBoxContainer"]
+layout_mode = 2
+text = "Options"
+
 [node name="QuitButton" type="Button" parent="CenterContainer/VBoxContainer"]
 layout_mode = 2
 text = "Quit"

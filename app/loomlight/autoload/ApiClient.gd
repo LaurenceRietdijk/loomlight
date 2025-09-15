@@ -37,6 +37,10 @@ func get_json(path: String) -> Dictionary:
 func post_json(path: String, payload: Variant) -> Dictionary:
 	return await _request_json(HTTPClient.METHOD_POST, path, payload)
 
+## Public: GET raw bytes (e.g., images)
+func get_bytes(path: String) -> PackedByteArray:
+	return await _request_bytes(HTTPClient.METHOD_GET, path)
+
 ## Core request handler (awaits)
 func _request_json(method: int, path: String, payload: Variant = null) -> Dictionary:
 	var url := _build_url(path)
@@ -60,3 +64,24 @@ func _request_json(method: int, path: String, payload: Variant = null) -> Dictio
 	else:
 		var err_text := res_body.get_string_from_utf8()
 		return _result_dict(false, res_code, null, err_text)
+
+## Core request handler for bytes
+func _request_bytes(method: int, path: String, payload: Variant = null) -> PackedByteArray:
+	var url := _build_url(path)
+	var body := ""
+	var headers := PackedStringArray()
+	if payload != null:
+		body = JSON.stringify(payload)
+		headers = _json_headers()
+
+	var err := _http.request(url, headers, method, body)
+	if err != OK:
+		return PackedByteArray()
+
+	var result: Array = await _http.request_completed
+	var res_code: int = result[1]
+	var res_body: PackedByteArray = result[3]
+
+	if res_code >= 200 and res_code < 300:
+		return res_body
+	return PackedByteArray()

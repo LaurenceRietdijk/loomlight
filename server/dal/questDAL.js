@@ -1,6 +1,7 @@
 const getDatabaseConnection = require("../config/worldDBs");
 const { ensureQuestModel } = require("../models/quest");
 const ItemSchema = require("../models/item");
+const { ensureItemModel } = require("../models/item");
 const CharacterSchema = require("../models/character");
 const FactionSchema = require("../models/faction");
 const LocaleSchema = require("../models/locale");
@@ -42,7 +43,7 @@ class QuestDAL {
     const db = getDatabaseConnection(world_id);
     const QuestModel = ensureQuestModel(db);
     // Ensure referenced models are registered for populate on this connection
-    db.model("Item", ItemSchema);
+    ensureItemModel(db);
     db.model("Character", CharacterSchema);
     db.model("Faction", FactionSchema);
     db.model("Locale", LocaleSchema);
@@ -67,7 +68,7 @@ class QuestDAL {
     const db = getDatabaseConnection(world_id);
     const QuestModel = ensureQuestModel(db);
     // Ensure referenced models are registered for populate on this connection
-    db.model("Item", ItemSchema);
+    ensureItemModel(db);
     db.model("Character", CharacterSchema);
     db.model("Faction", FactionSchema);
     db.model("Locale", LocaleSchema);

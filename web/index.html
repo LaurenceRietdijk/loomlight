@@ -13,6 +13,7 @@
         <button class="tab-button active" data-tab="worlds">World Selection</button>
         <button class="tab-button" data-tab="map">Map</button>
         <button class="tab-button" data-tab="locale">Locale</button>
+        <button class="tab-button" data-tab="biomes">Biomes</button>
         <button class="tab-button" data-tab="character" disabled>Character</button>
         <button class="tab-button" data-tab="quests" disabled>Quests</button>
       </nav>
@@ -81,6 +82,22 @@
         </div>
       </section>
 
+      <section id="tab-biomes" class="tab-panel">
+        <div class="panel">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <h2 style="margin:0;">Global Biomes</h2>
+            <div>
+              <button id="btn-generate-biome">Generate Biome</button>
+            </div>
+          </div>
+          <div class="muted" style="margin:6px 0 10px 0;">
+            Biomes are global building blocks. Generation uses the selected world as context if available.
+          </div>
+          <div id="biomes-list" class="world-list"></div>
+          <div id="biomes-error" class="error"></div>
+        </div>
+      </section>
+
       <section id="tab-character" class="tab-panel">
         <div class="panel">
           <div id="character-header" class="character-header"></div>
@@ -124,6 +141,7 @@
     <script src="/models/character.js"></script>
     <!-- Order matters: primitives before Locale -->
     <script src="/models/locale.js"></script>
+    <script src="/models/biome.js"></script>
     <script src="/models/player.js"></script>
     <script src="/models/game.js"></script>
     <script src="/app.js"></script>

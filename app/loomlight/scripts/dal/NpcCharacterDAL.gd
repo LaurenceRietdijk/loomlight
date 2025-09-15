@@ -14,7 +14,7 @@ static func fetch_one(world_id: String, character_id: String, full: bool = false
     if api == null:
         print("[NpcCharacterDAL] ERROR: ApiClient autoload not found")
         return null
-    var path := full ? "/character/full" : "/character"
+    var path := "/character/full" if full else "/character"
     var qs := "world_id=%s&character_id=%s" % [world_id, character_id]
     var result: Dictionary = await api.get_json(path + "?" + qs)
     var ok: bool = bool(result.get("ok", false))

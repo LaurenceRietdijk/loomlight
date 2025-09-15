@@ -1,9 +1,10 @@
 class_name World
 extends Resource
 
-const LocaleDAL = preload("res://scripts/dal/LocaleDAL.gd")
-const QuestDAL = preload("res://scripts/dal/QuestDAL.gd")
-const NpcCharacterDAL = preload("res://scripts/dal/NpcCharacterDAL.gd")
+const LOCALE_DAL = preload("res://scripts/dal/LocaleDAL.gd")
+const QUEST_DAL = preload("res://scripts/dal/QuestDAL.gd")
+const NPC_CHARACTER_DAL = preload("res://scripts/dal/NpcCharacterDAL.gd")
+const BIOME_DAL = preload("res://scripts/dal/BiomeDAL.gd")
 
 var id: String = ""
 var name: String = "Unnamed World"
@@ -26,6 +27,7 @@ var active_player_characters: Dictionary = {}
 
 # Optional cached associations (client-side)
 var player_characters: Array = [] # Array[PlayerCharacter]
+var biomes: Array[Biome] = [] # global biomes
 
 func _init(data: Dictionary = {}):
     if data.has("_id"): id = str(data._id)
@@ -53,7 +55,7 @@ func init_collections(world_id: String = "") -> void:
     if wid == "":
         print("[World] init_collections skipped: missing world id")
         return
-    var list: Array[Locale] = await LocaleDAL.fetch_list(wid)
+    var list: Array[Locale] = await LOCALE_DAL.fetch_list(wid)
     locales.clear()
     for loc in list:
         if loc is Locale and loc.id != "":
@@ -79,7 +81,7 @@ func ensure_quests(ids: Array) -> Dictionary:
     if missing.size() == 0:
         return result
     var wid := (db_world_id if db_world_id != "" else id)
-    var fetched: Dictionary = await QuestDAL.fetch_many(wid, missing)
+    var fetched: Dictionary = await QUEST_DAL.fetch_many(wid, missing)
     for key in fetched.keys():
         var q: Quest = fetched[key]
         if q is Quest:
@@ -102,7 +104,7 @@ func ensure_locale(locale_id: String) -> Locale:
         await loc.ensure_loaded(db_world_id)
         await _ingest_locale(loc)
         return loc
-    var fetched: Locale = await LocaleDAL.fetch_by_id((db_world_id if db_world_id != "" else id), lid)
+    var fetched: Locale = await LOCALE_DAL.fetch_by_id((db_world_id if db_world_id != "" else id), lid)
     if fetched != null:
         locales[fetched.id] = fetched
         await _ingest_locale(fetched)
@@ -137,7 +139,7 @@ func _ingest_locale(loc: Locale) -> void:
                 ids.append(cid2)
     if ids.size() > 0:
         var wid := (db_world_id if db_world_id != "" else id)
-        var fetched_chars: Dictionary = await NpcCharacterDAL.fetch_many(wid, ids)
+        var fetched_chars: Dictionary = await NPC_CHARACTER_DAL.fetch_many(wid, ids)
         for key in fetched_chars.keys():
             var ch = fetched_chars[key]
             if ch is Character and ch.id != "":

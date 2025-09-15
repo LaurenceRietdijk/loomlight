@@ -13,7 +13,7 @@ static func _api() -> Node:
         return tree.root.get_node("ApiClient")
     return null
 
-static func fetch_all() -> Array:
+static func fetch_all() -> Array[PlayerCharacter]:
     print("[CharacterDAL] GET ", PATH_ALL)
     var api := _api()
     if api == null:
@@ -33,7 +33,7 @@ static func fetch_all() -> Array:
             print("[CharacterDAL] Unexpected data shape: ", data)
             return []
 
-        var chars: Array = []
+        var chars: Array[PlayerCharacter] = []
         for c in list:
             chars.append(PlayerCharacter.new(c))
         print("[CharacterDAL] OK ", code, ", count=", chars.size())
@@ -43,7 +43,7 @@ static func fetch_all() -> Array:
         print("[CharacterDAL] ERROR ", code, ": ", err_text)
     return []
 
-static func fetch_by_world(world_id: String) -> Array:
+static func fetch_by_world(world_id: String) -> Array[PlayerCharacter]:
     var path := PATH_ALL # no world-scoped endpoint; list all
     print("[CharacterDAL] GET ", path, " (world=", world_id, ")")
     var api := _api()
@@ -64,7 +64,7 @@ static func fetch_by_world(world_id: String) -> Array:
             print("[CharacterDAL] Unexpected data shape: ", data, " for world=", world_id)
             return []
 
-        var chars: Array = []
+        var chars: Array[PlayerCharacter] = []
         for c in list:
             chars.append(PlayerCharacter.new(c))
         print("[CharacterDAL] OK ", code, ", count=", chars.size(), ", world=", world_id)

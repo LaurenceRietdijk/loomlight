@@ -2,13 +2,10 @@ const express = require("express");
 const router = express.Router();
 const LocaleDAL = require("../dal/localeDAL");
 const LocaleGenerator = require("../generation/localeGenerator");
-const {
-  generateNextLocaleImage,
-  generateLocaleImageFor,
-} = require("../jobs/localeImageJob");
+// Note: image job triggers are exposed via /admin, not /locale
 
 /**
- * List all locales for a given world (minimal fields).
+ * List all locales for a given world (minimal fields incl. biome id).
  */
 router.get("/list", async (req, res) => {
   try {
@@ -57,6 +54,26 @@ router.post("/byIds", async (req, res) => {
     return res.status(200).json({ localesById });
   } catch (error) {
     console.error("Error fetching locales by ids:", error);
+    return res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * Delete a locale by id and cascade-delete nested entities.
+ * Query: world_id (required)
+ * Path param: id (locale id)
+ */
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params || {};
+    const { world_id } = req.query || {};
+    if (!world_id || !id) {
+      return res.status(400).json({ error: "Missing world_id or id" });
+    }
+    const result = await LocaleDAL.deleteLocaleCascade(world_id, id);
+    return res.status(200).json({ message: "Locale deleted", result });
+  } catch (error) {
+    console.error("Error deleting locale:", error);
     return res.status(500).json({ error: "Server Error" });
   }
 });
@@ -138,28 +155,4 @@ router.post("/generate", async (req, res) => {
  * If the three fields above are provided, generates for that tuple.
  * Otherwise, triggers the "next" job (DB lookup stub may return none).
  */
-router.post("/imageJob/trigger", async (req, res) => {
-  try {
-    const { biome_id, biome_description, locale_type } = req.body || {};
-
-    if (biome_id && biome_description && locale_type) {
-      const outPath = await generateLocaleImageFor({
-        biome_id,
-        biome_description,
-        locale_type,
-      });
-      return res.status(200).json({ message: "Image generated", path: outPath });
-    }
-
-    const outPath = await generateNextLocaleImage();
-    if (!outPath) {
-      return res.status(200).json({ message: "No pending locale image to generate" });
-    }
-    return res.status(200).json({ message: "Image generated", path: outPath });
-  } catch (error) {
-    console.error("Error triggering locale image job:", error);
-    return res.status(500).json({ error: "Failed to trigger locale image job" });
-  }
-});
-
 module.exports = router;

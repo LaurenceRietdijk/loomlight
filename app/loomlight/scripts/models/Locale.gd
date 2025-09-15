@@ -1,7 +1,7 @@
 class_name Locale
 extends Resource
 
-const LocaleDAL = preload("res://scripts/dal/LocaleDAL.gd")
+const LOCALE_DAL = preload("res://scripts/dal/LocaleDAL.gd")
 
 var id: String = ""
 var name: String = ""
@@ -10,6 +10,7 @@ var description: String = ""
 var coordinates := Vector2.ZERO
 
 var primary_race: Variant = null
+var biome: String = ""
 var factions: Array = []
 var characters: Array = [] # lightweight refs: { _id, building?, role? }
 var buildings: Array[Building] = []
@@ -31,6 +32,14 @@ func _init(data: Dictionary = {}):
         coordinates = Vector2(x, y)
 
     if data.has("primary_race"): primary_race = data.primary_race
+    if data.has("biome"):
+        var b = data.biome
+        if b is Dictionary:
+            biome = str(b.get("_id", b.get("id", "")))
+        elif typeof(b) == TYPE_STRING:
+            biome = str(b)
+        else:
+            biome = ""
     if data.has("factions") and data.factions is Array:
         factions = data.factions.duplicate(true)
 
@@ -67,6 +76,12 @@ func _init(data: Dictionary = {}):
 static func from_dict(d: Dictionary) -> Locale:
     return Locale.new(d)
 
+## Returns the expected tile key used for images and tileset mapping: "<biomeId>_<LocaleType>"
+func tile_key() -> String:
+    if biome == "":
+        return ""
+    return "%s_%s" % [biome, type]
+
 func to_dict() -> Dictionary:
     var out := {
         "id": id,
@@ -75,6 +90,7 @@ func to_dict() -> Dictionary:
         "description": description,
         "coordinates": {"x": coordinates.x, "y": coordinates.y},
         "primary_race": primary_race,
+        "biome": biome,
         "factions": factions,
         "characters": characters,
         "buildings": [],
@@ -100,7 +116,7 @@ func ensure_loaded(world_id: String) -> Locale:
     # Defer to DAL to fetch full by id
     if tree.root.has_node("LocaleDAL"):
         pass # in-editor class_name, not a node
-    var cls = LocaleDAL
+    var cls = LOCALE_DAL
     var full: Locale = await cls.fetch_by_id(world_id, id)
     if full != null:
         _apply_from(full)

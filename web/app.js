@@ -17,12 +17,14 @@
     worlds: document.getElementById('tab-worlds'),
     map: document.getElementById('tab-map'),
     locale: document.getElementById('tab-locale'),
+    biomes: document.getElementById('tab-biomes'),
     character: document.getElementById('tab-character'),
     quests: document.getElementById('tab-quests'),
   };
   const characterTabButton = document.querySelector('.tab-button[data-tab="character"]');
   const mapTabButton = document.querySelector('.tab-button[data-tab="map"]');
   const localeTabButton = document.querySelector('.tab-button[data-tab="locale"]');
+  const biomesTabButton = document.querySelector('.tab-button[data-tab="biomes"]');
   const questsTabButton = document.querySelector('.tab-button[data-tab="quests"]');
   function switchTab(key) {
     tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tab === key));
@@ -33,6 +35,13 @@
     }
     if (key === 'quests') {
       loadAcceptedQuests();
+    }
+    if (key === 'map') {
+      // Ensure map reflects latest locales after any mutations
+      loadLocales();
+    }
+    if (key === 'biomes') {
+      loadBiomes();
     }
   }
   document.querySelector('.tabs').addEventListener('click', (e) => {
@@ -59,6 +68,11 @@
   const elQuestsList = document.getElementById('quests-list');
   const elQuestsErr = document.getElementById('quests-error');
   const elToast = document.getElementById('toast');
+
+  // Biomes UI
+  const elBiomesList = document.getElementById('biomes-list');
+  const elBiomesErr = document.getElementById('biomes-error');
+  const btnGenerateBiome = document.getElementById('btn-generate-biome');
 
   async function loadWorlds() {
     elWorldErr.textContent = '';
@@ -258,9 +272,91 @@
     if (mapTabButton) mapTabButton.toggleAttribute('disabled', !ok);
     if (localeTabButton) localeTabButton.toggleAttribute('disabled', !ok);
     if (questsTabButton) questsTabButton.toggleAttribute('disabled', !ok);
+    // Biomes are global; always enabled
+    if (biomesTabButton) biomesTabButton.removeAttribute('disabled');
     // Character tab remains gated by in-world character selection.
     // Additionally, if world+player not selected, force-disable it.
     if (characterTabButton && !ok) characterTabButton.setAttribute('disabled', 'true');
+  }
+
+  async function loadBiomes() {
+    if (!elBiomesList) return;
+    elBiomesErr.textContent = '';
+    elBiomesList.innerHTML = '';
+    try {
+      // Prefer Game cache
+      let biomes = (window.Game && typeof window.Game.getAllBiomes === 'function')
+        ? window.Game.getAllBiomes()
+        : [];
+      if (!Array.isArray(biomes) || biomes.length === 0) {
+        const res = await fetch('/biome');
+        if (!res.ok) throw new Error('Failed to load biomes');
+        const data = await res.json();
+        const raw = data.biomes || [];
+        try {
+          if (window.Game && typeof window.Game.setBiomesFromArray === 'function') {
+            biomes = window.Game.setBiomesFromArray(raw);
+          } else { biomes = raw; }
+        } catch { biomes = raw; }
+      }
+      renderBiomes(biomes || []);
+    } catch (e) {
+      console.error(e);
+      elBiomesErr.textContent = 'Error loading biomes.';
+    }
+  }
+
+  function renderBiomes(list) {
+    if (!elBiomesList) return;
+    if (!Array.isArray(list) || list.length === 0) {
+      elBiomesList.innerHTML = '<div class="world-meta">No biomes yet. Generate one to get started.</div>';
+      return;
+    }
+    elBiomesList.innerHTML = '';
+    list.forEach((b) => {
+      const name = escapeHtml(b.name || (b.id || 'Biome'));
+      const desc = escapeHtml(b.description || '');
+      const locales = (b.locales && typeof b.locales === 'object') ? Object.entries(b.locales) : [];
+      const activeTypes = locales.filter(([, v]) => !!v).map(([k]) => String(k));
+      const tags = activeTypes.length ? activeTypes.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join(' ') : '<span class="muted">None</span>';
+      const card = document.createElement('div');
+      card.className = 'world-card';
+      card.style.cursor = 'default';
+      card.innerHTML = `
+        <div class="world-title">${name}</div>
+        <div class="world-meta" style="margin-bottom:6px;">${desc}</div>
+        <div class="section-title">Allowed Locale Types</div>
+        <div class="tags">${tags}</div>
+      `;
+      elBiomesList.appendChild(card);
+    });
+  }
+
+  if (btnGenerateBiome) {
+    btnGenerateBiome.addEventListener('click', async () => {
+      elBiomesErr.textContent = '';
+      btnGenerateBiome.disabled = true; btnGenerateBiome.textContent = 'Generating...';
+      try {
+        const body = {};
+        if (state.currentWorld && state.currentWorld._id) {
+          body.world_id = String(state.currentWorld._id);
+        }
+        const res = await fetch('/biome/generate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('Failed to generate biome');
+        // Refresh list
+        // Clear Game cache biomes so we re-render new data
+        try { if (window.Game && typeof window.Game.clearBiomes === 'function') window.Game.clearBiomes(); } catch {}
+        await loadBiomes();
+      } catch (e) {
+        console.error(e);
+        elBiomesErr.textContent = 'Error generating biome.';
+      } finally {
+        btnGenerateBiome.disabled = false; btnGenerateBiome.textContent = 'Generate Biome';
+      }
+    });
   }
 
   async function ensureActivePCDoc(worldId, pcId) {
@@ -631,11 +727,55 @@ try {
     const cx = (locale.coordinates && typeof locale.coordinates.x !== 'undefined') ? locale.coordinates.x : x;
     const cy = (locale.coordinates && typeof locale.coordinates.y !== 'undefined') ? locale.coordinates.y : y;
     elLocaleHeader.innerHTML = `
-      <div class="locale-title">${escapeHtml(locale.name)} <span class="locale-sub">(${escapeHtml(locale.type || '')})</span></div>
-      <div class="locale-sub">Coordinates: (${cx}, ${cy})</div>
+      <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;">
+        <div class="locale-title">${escapeHtml(locale.name)} <span class="locale-sub">(${escapeHtml(locale.type || '')})</span></div>
+        <div class="locale-sub">Coordinates: (${cx}, ${cy})</div>
+      </div>
+      <div class="actions">
+        <button id="btn-delete-locale" class="btn-delete" title="Delete this locale">Delete Locale</button>
+      </div>
     `;
 
+    const btnDeleteLocale = document.getElementById('btn-delete-locale');
+    if (btnDeleteLocale) {
+      btnDeleteLocale.onclick = async () => {
+        try {
+          const lid = String(locale.id || locale._id || '');
+          const wid = String(state.currentWorld?._id || '');
+          if (!lid || !wid) return;
+          const ok = confirm(`Delete locale "${locale.name}"? This removes all nested buildings, rooms, containers, items, and characters.`);
+          if (!ok) return;
+          btnDeleteLocale.disabled = true; const prev = btnDeleteLocale.textContent; btnDeleteLocale.textContent = 'Deleting...';
+          const res = await fetch(`/locale/${encodeURIComponent(lid)}?world_id=${encodeURIComponent(wid)}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete locale');
+          // Clear cache and reload locales
+          try { if (window.Game && typeof window.Game.clearLocales === 'function') window.Game.clearLocales(); } catch {}
+          state.currentLocale = null;
+          await loadLocales();
+          renderGenerateLocaleUI(cx, cy);
+          showToast('Locale deleted');
+        } catch (e) {
+          console.error(e);
+          elLocaleErr.textContent = 'Error deleting locale.';
+        } finally {
+          btnDeleteLocale.disabled = false; btnDeleteLocale.textContent = 'Delete Locale';
+        }
+      };
+    }
+
     const primaryRaceName = (locale.primary_race && typeof locale.primary_race === 'object') ? (locale.primary_race.name || '') : '';
+    // Resolve biome display name
+    let biomeName = '';
+    try {
+      const b = locale.biome;
+      if (b && typeof b === 'object') {
+        biomeName = b.name || String(b._id || b.id || '');
+      } else if (b) {
+        const bid = String(b);
+        const gb = (window.Game && typeof window.Game.getBiome === 'function') ? window.Game.getBiome(bid) : null;
+        biomeName = gb && gb.name ? gb.name : bid;
+      }
+    } catch {}
     const factionNames = Array.isArray(locale.factions) ? locale.factions.map(f => (f && f._id && f._id.name) ? f._id.name : '').filter(Boolean) : [];
     const features = Array.isArray(locale.special_features) ? locale.special_features.slice() : [];
     const resources = locale.resources || {};
@@ -646,6 +786,7 @@ try {
 
     elLocaleOverview.innerHTML = `
       <div class="kv">
+        <div class="key">Biome</div><div>${escapeHtml(biomeName || 'Unknown')}</div>
         <div class="key">Primary race</div><div>${escapeHtml(primaryRaceName || 'Unknown')}</div>
         <div class="key">Population</div><div>${Number(locale.population || 0).toLocaleString()}</div>
         <div class="key">Wealth</div><div>${escapeHtml(resources.wealth || 'unknown')}</div>
@@ -806,6 +947,7 @@ try {
           });
           if (!res.ok) throw new Error('Generation failed');
           // Refresh locales and open the newly generated one
+          try { if (window.Game && typeof window.Game.clearLocales === 'function') window.Game.clearLocales(); } catch {}
           await loadLocales();
           await onCellClick(x, y, true);
         } catch (e) {

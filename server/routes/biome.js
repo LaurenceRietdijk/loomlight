@@ -5,16 +5,11 @@ const BiomeGenerator = require("../generation/biomeGenerator");
 const World = require("../models/world");
 
 /**
- * Fetch all biomes for a given world.
+ * Fetch all biomes (global across worlds).
  */
-router.get("/:world_id", async (req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const { world_id } = req.params;
-    if (!world_id) {
-      return res.status(400).json({ error: "Missing world_id" });
-    }
-
-    const biomes = await BiomeDAL.getBiomes(world_id);
+    const biomes = await BiomeDAL.getBiomes();
     return res.status(200).json({ message: "Biomes found", biomes });
   } catch (error) {
     console.error("Error fetching biomes:", error);
@@ -23,16 +18,16 @@ router.get("/:world_id", async (req, res) => {
 });
 
 /**
- * Fetch a specific biome by ID within a world.
+ * Fetch a specific biome by ID (global).
  */
-router.get("/:world_id/:biome_id", async (req, res) => {
+router.get("/:biome_id", async (req, res) => {
   try {
-    const { world_id, biome_id } = req.params;
-    if (!world_id || !biome_id) {
-      return res.status(400).json({ error: "Missing world_id or biome_id" });
+    const { biome_id } = req.params;
+    if (!biome_id) {
+      return res.status(400).json({ error: "Missing biome_id" });
     }
 
-    const biome = await BiomeDAL.getBiomeById(world_id, biome_id);
+    const biome = await BiomeDAL.getBiomeById(biome_id);
     if (biome) {
       return res.status(200).json({ message: "Biome found", biome });
     } else {
@@ -45,25 +40,25 @@ router.get("/:world_id/:biome_id", async (req, res) => {
 });
 
 /**
- * Generate new biomes for a world using AI and insert them via the DAL.
+ * Generate a single global biome using AI.
+ * Optional body: { world_id?: string } to provide world context for GPT.
  */
-router.post("/:world_id/generate", async (req, res) => {
+router.post("/generate", async (req, res) => {
   try {
-    const { world_id } = req.params;
-    const { count } = req.body || {};
-    if (!world_id) {
-      return res.status(400).json({ error: "Missing world_id" });
+    const { world_id } = req.body || {};
+
+    let world = null;
+    if (world_id) {
+      world = await World.findById(world_id).exec();
+      if (!world) {
+        return res.status(404).json({ error: "World not found" });
+      }
     }
 
-    const world = await World.findById(world_id).exec();
-    if (!world) {
-      return res.status(404).json({ error: "World not found" });
-    }
-
-    const biomes = await BiomeGenerator.generateBiomes(world, count);
-    res.status(201).json({ message: "Biomes generated", biomes });
+    const biome = await BiomeGenerator.generateBiome(world);
+    res.status(201).json({ message: "Biome generated", biome });
   } catch (error) {
-    console.error("Error generating biomes:", error);
+    console.error("Error generating biome:", error);
     res.status(500).json({ error: "Server Error" });
   }
 });

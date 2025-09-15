@@ -4,7 +4,7 @@ extends Object
 ## Data Access for Worlds
 
 const PATH_ALL = "/world"
-const World = preload("res://scripts/models/World.gd")
+const WORLD = preload("res://scripts/models/World.gd")
 
 static func _api() -> Node:
     var tree := Engine.get_main_loop() as SceneTree
@@ -34,7 +34,7 @@ static func fetch_all() -> Array[World]:
 
         var worlds: Array[World] = []
         for w in list:
-            worlds.append(World.new(w))
+            worlds.append(WORLD.new(w))
         print("[WorldDAL] OK ", code, ", count=", worlds.size())
         return worlds
     else:

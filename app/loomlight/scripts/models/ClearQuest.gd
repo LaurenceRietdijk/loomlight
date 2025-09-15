@@ -13,7 +13,7 @@ func init(world) -> void:
     elif typeof(target_locale) == TYPE_STRING:
         loc_id = str(target_locale)
     if loc_id != "" and world != null:
-        var _ := await world.ensure_locale(loc_id)
+        await world.ensure_locale(loc_id)
         # Subscribe to character state changes in this locale
         for key in world.characters.keys():
             var ch = world.characters[key]
@@ -39,7 +39,7 @@ func update_progress(world) -> void:
     if loc_id == "" or world == null:
         progress = progress_text()
         return
-    var _ := await world.ensure_locale(loc_id)
+    await world.ensure_locale(loc_id)
     var count_active := 0
     for key in world.characters.keys():
         var ch = world.characters[key]

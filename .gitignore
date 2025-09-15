@@ -48,3 +48,6 @@ Thumbs.db
 *.patch
 *.diff
 
+# Ignore temp scratch files
+temp_*.txt
+

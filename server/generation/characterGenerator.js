@@ -1,10 +1,6 @@
 const mongoose = require("mongoose");
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const CharacterDAL = require("../dal/characterDAL");
-
-const openai = new OpenAI({
-  apiKey: process.env.API_KEY,
-});
 
 class CharacterGenerator {
   /**
@@ -42,49 +38,19 @@ This is a medieval fantasy world.
 Locale description: ${localeDescription}.
 Give the character an immersive backstory and clear personality traits.`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
+    const parsed = await gpt.chatJSON(
+      [
         {
           role: "system",
-          content: `You are an AI that creates NPCs for a medieval fantasy game.
-Your response **must be valid JSON and contain no extra text**.
-
-The character format is:
-{
-  "name": "Full Name",
-  "title": "Optional title",
-  "role": "Role in the building",
-  "description": "Short summary of appearance and background.",
-  "personality": "Brief temperament or habits.",
-  "race": "Fantasy race like Elf, Human, Dwarf, etc.",
-  "gender": "male" | "female" | "nonbinary",
-  "age": Number
-}`,
+          content:
+            "You are an AI that creates NPCs for a medieval fantasy game.\n" +
+            "Your response must be valid JSON and contain no extra text.\n\n" +
+            "The character format is:\n{\n  \"name\": \"Full Name\",\n  \"title\": \"Optional title\",\n  \"role\": \"Role in the building\",\n  \"description\": \"Short summary of appearance and background.\",\n  \"personality\": \"Brief temperament or habits.\",\n  \"race\": \"Fantasy race like Elf, Human, Dwarf, etc.\",\n  \"gender\": \"male\" | \"female\" | \"nonbinary\",\n  \"age\": Number\n}",
         },
-        {
-          role: "user",
-          content: userPrompt,
-        },
+        { role: "user", content: userPrompt },
       ],
-      max_tokens: 400,
-      temperature: 0.85,
-    });
-
-        const raw = completion.choices[0].message.content;
-    const parsed = (function(text){
-      function tryParseJSON(t){
-        if(!t) return null; const s=String(t).trim(); const cands=[s];
-        const fence = s.match(/```(?:json|JSON)?\s*([\s\S]*?)\s*```/); if(fence&&fence[1]) cands.push(fence[1].trim());
-        const fa=s.indexOf('['), fo=s.indexOf('{'); const fb=(fa===-1&&fo===-1)?-1:(fa===-1?fo:(fo===-1?fa:Math.min(fa,fo)));
-        if(fb!==-1) cands.push(s.slice(fb));
-        for(const c of cands){ try { return JSON.parse(c);} catch(_){} }
-        return null;
-      }
-      const p=tryParseJSON(text);
-      if(!p){ console.error('Failed to parse character JSON:', text); throw new Error('Invalid character JSON'); }
-      return p;
-    })(raw);
+      { model: "gpt-3.5-turbo", max_tokens: 400, temperature: 0.85 }
+    );
 
     let raceName = parsed.race;
     if (locale.primary_race) {
@@ -160,33 +126,23 @@ Return your answer as a valid JSON array with no extra text. Use this format:
   }
 ]`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `You are an AI that creates immersive NPCs for medieval fantasy games. Only return valid JSON arrays.`,
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      max_tokens: 600,
-      temperature: 0.85,
-    });
-
-    const rawContent = completion.choices[0].message.content;
     let generatedList;
-
     try {
-      generatedList = JSON.parse(rawContent);
-      if (!Array.isArray(generatedList)) {
-        throw new Error("GPT response is not an array");
-      }
+      const content = await gpt.chatJSON(
+        [
+          {
+            role: "system",
+            content:
+              "You are an AI that creates immersive NPCs for medieval fantasy games. Only return valid JSON arrays.",
+          },
+          { role: "user", content: prompt },
+        ],
+        { model: "gpt-3.5-turbo", max_tokens: 600, temperature: 0.85 }
+      );
+      if (!Array.isArray(content)) throw new Error("GPT response is not an array");
+      generatedList = content;
     } catch (err) {
       console.error("Failed to parse GPT character array:", err);
-      console.error("GPT output was:\n", rawContent);
       throw new Error("Character generation failed: Invalid JSON");
     }
 
@@ -315,49 +271,54 @@ Keep the age, gender, and race values exactly as given.
 
 Return ONLY a JSON array with the same length as skeletons.`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You generate NPC children for a medieval fantasy world. Output must be valid JSON array only.",
-        },
-        { role: "user", content: prompt },
-      ],
-      max_tokens: 500,
-      temperature: 0.8,
-    });
-
-    // Robust JSON parsing: handle code fences and surrounding text
-    function tryParseJSON(text) {
-      if (!text) return null;
-      const candidates = [];
-      const t = String(text).trim();
-      candidates.push(t);
-      // Extract from code fences if present
-      const fence = t.match(/```(?:json|JSON)?\s*([\s\S]*?)\s*```/);
-      if (fence && fence[1]) candidates.push(fence[1].trim());
-      // Extract from first JSON-looking bracket
-      const firstArr = t.indexOf('[');
-      const firstObj = t.indexOf('{');
-      const firstBrace = (firstArr === -1 && firstObj === -1) ? -1 : (firstArr === -1 ? firstObj : (firstObj === -1 ? firstArr : Math.min(firstArr, firstObj)));
-      if (firstBrace !== -1) {
-        candidates.push(t.slice(firstBrace));
-      }
-      for (const c of candidates) {
-        try { return JSON.parse(c); } catch (_) {}
-      }
-      return null;
+    let fleshed;
+    try {
+      const content = await gpt.chatJSON(
+        [
+          {
+            role: "system",
+            content:
+              "You generate NPC children for a medieval fantasy world. Output must be valid JSON array only.",
+          },
+          { role: "user", content: prompt },
+        ],
+        { model: "gpt-3.5-turbo", max_tokens: 500, temperature: 0.8 }
+      );
+      fleshed = content;
+    } catch (e) {
+      fleshed = null;
     }
 
-    let fleshed = tryParseJSON(completion.choices[0].message.content);
+    // Be resilient to non-array responses from the model
     if (!Array.isArray(fleshed)) {
-      console.error(
-        "Failed to parse GPT children (raw):\n",
-        completion.choices[0].message.content
-      );
-      throw new Error("Invalid JSON array from model for children generation");
+      // Attempt to coerce common shapes into an array
+      try {
+        if (typeof fleshed === "string") {
+          const parsed = JSON.parse(fleshed);
+          fleshed = parsed;
+        }
+        if (!Array.isArray(fleshed) && fleshed && typeof fleshed === "object") {
+          const candidateKeys = ["children", "data", "list", "items", "result"];
+          for (const k of candidateKeys) {
+            if (Array.isArray(fleshed[k])) {
+              fleshed = fleshed[k];
+              break;
+            }
+          }
+        }
+      } catch (_) {
+        // ignore parse errors; we'll fall back below
+      }
+    }
+
+    // If still not an array, synthesize child details locally instead of failing
+    if (!Array.isArray(fleshed)) {
+      console.warn("Invalid JSON array from model for children; using fallback synthesis.");
+      fleshed = skeletons.map((s, i) => ({
+        name: `${parentA.name?.split(" ")[0] || "Child"} ${i + 1}`,
+        description: `Child of ${parentA.name} and ${parentB.name}.`,
+        personality: "Curious and energetic.",
+      }));
     }
 
     // 3. Merge GPT data into skeleton docs
