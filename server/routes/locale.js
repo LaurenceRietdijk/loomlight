@@ -2,6 +2,10 @@ const express = require("express");
 const router = express.Router();
 const LocaleDAL = require("../dal/localeDAL");
 const LocaleGenerator = require("../generation/localeGenerator");
+const {
+  generateNextLocaleImage,
+  generateLocaleImageFor,
+} = require("../jobs/localeImageJob");
 
 /**
  * List all locales for a given world (minimal fields).
@@ -121,6 +125,40 @@ router.post("/generate", async (req, res) => {
   } catch (error) {
     console.error("Error generating locale:", error);
     res.status(500).json({ error: "Server Error" });
+  }
+});
+
+/**
+ * TEMP: Trigger locale image job for testing.
+ * POST /locale/imageJob/trigger
+ * Body (optional):
+ *  - biome_id: string | number
+ *  - biome_description: string
+ *  - locale_type: string
+ * If the three fields above are provided, generates for that tuple.
+ * Otherwise, triggers the "next" job (DB lookup stub may return none).
+ */
+router.post("/imageJob/trigger", async (req, res) => {
+  try {
+    const { biome_id, biome_description, locale_type } = req.body || {};
+
+    if (biome_id && biome_description && locale_type) {
+      const outPath = await generateLocaleImageFor({
+        biome_id,
+        biome_description,
+        locale_type,
+      });
+      return res.status(200).json({ message: "Image generated", path: outPath });
+    }
+
+    const outPath = await generateNextLocaleImage();
+    if (!outPath) {
+      return res.status(200).json({ message: "No pending locale image to generate" });
+    }
+    return res.status(200).json({ message: "Image generated", path: outPath });
+  } catch (error) {
+    console.error("Error triggering locale image job:", error);
+    return res.status(500).json({ error: "Failed to trigger locale image job" });
   }
 });
 
