@@ -67,3 +67,4 @@ static func fetch_by_id(id: String) -> Biome:
         var err_text: String = str(result.get("error", ""))
         print("[BiomeDAL] ERROR ", code, ": ", err_text)
     return null
+

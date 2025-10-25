@@ -144,3 +144,4 @@ func _ingest_locale(loc: Locale) -> void:
             var ch = fetched_chars[key]
             if ch is Character and ch.id != "":
                 characters[ch.id] = ch
+

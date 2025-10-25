@@ -14,24 +14,15 @@ class FactionGenerator {
   static async generateFactions(world, count = 3) {
     console.log(`Generating ${count} factions for world ${world.name}...`);
 
-    const generatedFactions = await gpt.chatJSON(
-      [
-        {
-          role: "system",
-          content:
-            "You are an AI that generates JSON data for factions in a medieval fantasy world.\n" +
+    const generatedFactions = await gpt.chatJSONPrompt(
+      "You are an AI that generates JSON data for factions in a medieval fantasy world.\n" +
             "Your response must be valid JSON and contain no extra text.\n\n" +
             "Use the world description to create factions that fit into the setting.\n\n" +
             "Each faction should follow this structure:\n{\n  \"name\": \"Faction Name\",\n  \"description\": \"A short but immersive description of the faction's history and values.\",\n  \"alignment\": \"Lawful Good, Neutral, Chaotic Evil, etc.\",\n  \"resources\": {\n    \"wealth\": \"low, moderate, high\",\n    \"military_strength\": \"weak, average, strong\",\n    \"political_influence\": \"low, medium, high\"\n  }\n}",
-        },
-        {
-          role: "user",
-          content:
-            `Generate ${count} factions for the world **${world.name}**.\n\n### World Context:\n${world.description}`,
-        },
-      ],
-      { model: "gpt-3.5-turbo", max_tokens: 700, temperature: 0.8 }
+      `Generate ${count} factions for the world **${world.name}**.\n\n### World Context:\n${world.description}`,
+      { max_tokens: 700, temperature: 0.8 }
     );
+
 
     let insertedFactions = [];
     for (let faction of generatedFactions) {
@@ -91,24 +82,15 @@ class FactionGenerator {
       `Generating a faction pact for ${factionA.name} and ${factionB.name} in world ${world.name}...`
     );
 
-    const generatedPact = await gpt.chatJSON(
-      [
-        {
-          role: "system",
-          content:
-            "You are an AI that generates JSON data for faction relationships (pacts) in a medieval fantasy world.\n" +
+    const generatedPact = await gpt.chatJSONPrompt(
+      "You are an AI that generates JSON data for faction relationships (pacts) in a medieval fantasy world.\n" +
             "Your response must be valid JSON and contain no extra text.\n\n" +
             `Each pact must include a series of historical events that outline a progression of interactions between the factions leading up to the current date (${world.currentYear}).\n\n` +
             "Each pact should follow this structure:\n{\n  \"name\": \"Pact Name\",\n  \"type\": \"alliance, war, trade, vassalage, rivalry, non-aggression\",\n  \"description\": \"A short but immersive description of the pact's purpose.\",\n  \"events\": [ { \"name\": \"Event Name\", \"description\": \"Event details\", \"realDate\": \"YYYY-MM-DD\" } ]\n}",
-        },
-        {
-          role: "user",
-          content:
-            `Generate a faction pact between **${factionA.name}** and **${factionB.name}** in the world **${world.name}**.\n\n### World Context:\n${world.description}\n\n### Faction A:\nName: ${factionA.name}\nDescription: ${factionA.description}\n\n### Faction B:\nName: ${factionB.name}\nDescription: ${factionB.description}\n\nThe events should outline a clear progression of interactions between these factions, starting from their first recorded encounter up to the current date (${new Date().toISOString().split("T")[0]}).\n\nEnsure that the earliest events establish how these factions first became aware of each other (diplomacy, war, trade, conflict).\n\nSubsequent events should reflect their changing relationship over time, including key moments such as betrayals, alliances, escalating conflicts, or significant treaties.\n\nThe final event should be dated as close as possible to today's date and should establish the current nature of their relationship as reflected in the faction pact.`,
-        },
-      ],
-      { model: "gpt-3.5-turbo", max_tokens: 1000, temperature: 0.8 }
+      `Generate a faction pact between **${factionA.name}** and **${factionB.name}** in the world **${world.name}**.\n\n### World Context:\n${world.description}\n\n### Faction A:\nName: ${factionA.name}\nDescription: ${factionA.description}\n\n### Faction B:\nName: ${factionB.name}\nDescription: ${factionB.description}\n\nThe events should outline a clear progression of interactions between these factions, starting from their first recorded encounter up to the current date (${new Date().toISOString().split("T")[0]}).\n\nEnsure that the earliest events establish how these factions first became aware of each other (diplomacy, war, trade, conflict).\n\nSubsequent events should reflect their changing relationship over time, including key moments such as betrayals, alliances, escalating conflicts, or significant treaties.\n\nThe final event should be dated as close as possible to today's date and should establish the current nature of their relationship as reflected in the faction pact.`,
+      { max_tokens: 1000, temperature: 0.8 }
     );
+
 
     let pactData = {
       name: generatedPact.name,

@@ -1,0 +1,19 @@
+root = true
+
+# Default LF and UTF-8
+[*]
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# Godot scripts use 4 spaces
+[*.gd]
+indent_style = space
+indent_size = 4
+
+# JSON, JS (server) – keep 2 spaces if desired; adjust if your repo uses 2
+[*.{json,js}]
+indent_style = space
+indent_size = 2
+

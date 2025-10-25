@@ -19,11 +19,13 @@ app.use("/admin", require("./routes/admin"));
 app.use("/locale", require("./routes/locale"));
 app.use("/race", require("./routes/race"));
 app.use("/biome", require("./routes/biome"));
+app.use("/terrain", require("./routes/terrain"));
 app.use("/quest", require("./routes/quest"));
 app.use("/character", require("./routes/character"));
 app.use("/playerCharacter", require("./routes/playerCharacter"));
 app.use("/activePlayerCharacter", require("./routes/activePlayerCharacter"));
 app.use("/image", require("./routes/image"));
+app.use("/tileset", require("./routes/tileset"));
 
 
 // Start background schedulers (e.g., locale image generator)

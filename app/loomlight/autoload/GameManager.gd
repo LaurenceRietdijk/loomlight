@@ -545,6 +545,7 @@ func _ensure_locale_terrain_tilesets(loc: Locale) -> void:
 	_load_terrain_tilesets_into_layer()
 
 ## Load cached terrain tileset images into the Terrain TileMapLayer
+## Load cached terrain tileset images into the Terrain TileMapLayer
 func _load_terrain_tilesets_into_layer() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
@@ -552,28 +553,39 @@ func _load_terrain_tilesets_into_layer() -> void:
 	var root: Node = tree.current_scene if tree.current_scene != null else tree.root
 	if root == null:
 		return
+
 	var terrain_layer = null
+	# Support both singular and plural node names
 	if root.has_node("LocaleScreen/Terrain"):
 		terrain_layer = root.get_node("LocaleScreen/Terrain")
+	elif root.has_node("LocaleScreen/Terrains"):
+		terrain_layer = root.get_node("LocaleScreen/Terrains")
 	elif tree.root.has_node("Game/LocaleScreen/Terrain"):
 		terrain_layer = tree.root.get_node("Game/LocaleScreen/Terrain")
+	elif tree.root.has_node("Game/LocaleScreen/Terrains"):
+		terrain_layer = tree.root.get_node("Game/LocaleScreen/Terrains")
+
 	if terrain_layer == null:
 		print("[GameManager] Terrain layer not found; skipping tileset load")
 		return
+
 	var tileset: TileSet = null
 	if terrain_layer.has_method("get"):
 		tileset = terrain_layer.get("tile_set") as TileSet
 	else:
 		tileset = terrain_layer.tile_set
+
 	if tileset == null:
 		print("[GameManager] Terrain layer has no TileSet")
 		return
+
 	print("[GameManager] Terrain TileSet instance id=", tileset.get_instance_id())
 
-	# Scan cache dir and add sources for any images not yet added
 	var dir := DirAccess.open(TILESET_CACHE_DIR)
 	if dir == null:
+		print("[GameManager] No tileset cache dir at ", TILESET_CACHE_DIR)
 		return
+
 	dir.list_dir_begin()
 	while true:
 		var name := dir.get_next()
@@ -583,11 +595,12 @@ func _load_terrain_tilesets_into_layer() -> void:
 			continue
 		if not name.to_lower().ends_with(".png"):
 			continue
+
 		var key := name.substr(0, name.rfind("."))
 		# Avoid duplicate sources by key if already present
-		var already: bool = false
+		var already := false
 		var scount := tileset.get_source_count()
-		for i in scount:
+		for i in range(scount):
 			var sid_i := tileset.get_source_id(i)
 			var src_i := tileset.get_source(sid_i)
 			if src_i is TileSetAtlasSource and src_i.resource_name == key:
@@ -595,50 +608,60 @@ func _load_terrain_tilesets_into_layer() -> void:
 				break
 		if already:
 			continue
+
 		var full := "%s/%s" % [TILESET_CACHE_DIR, name]
 		var img := Image.new()
 		if img.load(full) != OK:
+			print("[GameManager] Failed to load tileset image: ", full)
 			continue
+
 		var tex := ImageTexture.create_from_image(img)
 		if tex == null:
+			print("[GameManager] Failed to create texture for: ", full)
 			continue
+
 		var src := TileSetAtlasSource.new()
 		src.texture = tex
-		# Split composed atlas into 4x4 frames when possible
+
+		# Attempt to slice a 4×4 atlas; otherwise treat as single frame
 		var w := img.get_width()
 		var h := img.get_height()
 		var cols := 4
 		var rows := 4
 		src.resource_name = key
+
 		if (w % cols == 0) and (h % rows == 0):
 			var cell_w := int(w / cols)
 			var cell_h := int(h / rows)
 			src.texture_region_size = Vector2i(cell_w, cell_h)
-			for ry in rows:
-				for rx in cols:
+			for ry in range(rows):
+				for rx in range(cols):
 					var ac := Vector2i(rx, ry)
 					if not src.has_tile(ac):
 						src.create_tile(ac)
 		else:
-			# Fallback: treat as single frame
+			# Fallback: single frame
 			src.texture_region_size = Vector2i(w, h)
 			var a0 := Vector2i(0, 0)
 			if not src.has_tile(a0):
 				src.create_tile(a0)
-			var sid := tileset.get_next_source_id()
-			# Ensure resource_name is the tileset id (filename base)
-			src.resource_name = key
-			tileset.add_source(src, sid)
-			_terrain_tileset_source_by_id[key] = sid
-			print("[GameManager] Added terrain tileset source ", name, " as id ", sid)
+
+		# ✅ Step 2 fix: ALWAYS add the source (both 4×4 and fallback paths)
+		var sid := tileset.get_next_source_id()
+		tileset.add_source(src, sid)
+		_terrain_tileset_source_by_id[key] = sid
+		print("[GameManager] Added terrain tileset source ", name, " as id ", sid)
 	dir.list_dir_end()
+
 	# Reassign the TileSet to ensure node picks up runtime-added sources
 	if terrain_layer.has_method("set"):
 		terrain_layer.set("tile_set", tileset)
 	else:
 		terrain_layer.tile_set = tileset
+
 	print("[GameManager] Reassigned Terrain TileSet; source_count=", tileset.get_source_count())
-	terrain_layer.queue_redraw()
+	if terrain_layer.has_method("queue_redraw"):
+		terrain_layer.queue_redraw()
 
 ## Build per-terrain index mapping to TileSet source/atlas for base tiles (solid)
 ## Returns Array[Dictionary] aligned with biome.terrains order: { sid: int, atlas: Vector2i, tileset_id: String }

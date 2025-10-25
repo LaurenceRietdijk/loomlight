@@ -18,3 +18,4 @@ func _on_save() -> void:
     if OpenAIClient:
         OpenAIClient.set_api_key(key)
     hide()
+

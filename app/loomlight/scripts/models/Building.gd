@@ -36,3 +36,4 @@ func to_dict() -> Dictionary:
         if r is Room:
             out.rooms.append(r.to_dict())
     return out
+

@@ -93,3 +93,4 @@ func set_status(value: String) -> void:
     var old := _status
     _status = v
     emit_signal("state_changed", self, old, _status)
+

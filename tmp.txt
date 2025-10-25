@@ -1,0 +1,240 @@
+
+	_update_loading(0.65, "Building locale scene...")
+	# Notify the main game UI to switch to the locale screen
+	var game := _get_game_node()
+	if game and game.has_method("show_locale"):
+		game.call("show_locale", loc)
+	_update_loading(1.0, "Locale ready")
+	# Hide loading; locale screen should now be visible
+	var game2 := _get_game_node()
+	if game2 and game2.has_method("hide_loading"):
+		game2.call("hide_loading")
+	else:
+		_loading_finish() # fallback to default
+
+## Ensure biome, terrains, and tileset images for the locale are cached locally and loaded into the Terrain layer
+func _ensure_locale_terrain_tilesets(loc: Locale) -> void:
+	if loc == null:
+		return
+	# Resolve biome id (Locale.biome is typically a String id)
+	var biome_id: String = ""
+	var biome_val: Variant = loc.biome
+	if biome_val is Dictionary:
+		var bdict: Dictionary = biome_val
+		if bdict.has("_id"):
+			biome_id = str(bdict.get("_id"))
+	elif biome_val is String:
+		biome_id = str(biome_val)
+	if biome_id == "":
+		return
+
+	# Ensure biome in cache (try world first)
+	var biome: Biome = null
+	if _biome_by_id.has(biome_id):
+		biome = _biome_by_id[biome_id]
+	else:
+		for biome_item in current_world.biomes:
+			if biome_item != null and str(biome_item.id) == biome_id:
+				biome = biome_item
+				break
+		if biome == null:
+			biome = await BIOME_DAL.fetch_by_id(biome_id)
+			if biome != null:
+				_biome_by_id[biome_id] = biome
+	if biome == null:
+		return
+
+	# Ensure terrain cache for all biome terrains
+	var terrain_ids: Array[String] = []
+	if biome.terrains is Array:
+		for t in biome.terrains:
+			var tid: String = str(t)
+			if tid != "" and not terrain_ids.has(tid):
+				terrain_ids.append(tid)
+
+	# Fetch any missing terrains
+	for tid in terrain_ids:
+		if not _terrain_by_id.has(tid):
+			print("[GameManager][Fetch][Terrain] Requesting terrain doc:", tid)
+			var tdoc: Dictionary = await TERRAIN_DAL.fetch_by_id(tid)
+			if tdoc != null and tdoc.size() > 0:
+				print("[GameManager][Fetch][Terrain] Success:", tid)
+			else:
+				print("[GameManager][Fetch][Terrain] Failed to fetch:", tid)
+			if tdoc != null and tdoc.size() > 0:
+				_terrain_by_id[tid] = tdoc
+
+	# Build unordered pairs and check neighbour mappings for implemented tilesets
+	var pairs: Array = [] # [ [lowerId, upperId] ]
+	for i in range(0, terrain_ids.size()):
+		for j in range(i+1, terrain_ids.size()):
+			var id_a: String = terrain_ids[i]
+			var id_b: String = terrain_ids[j]
+			var lower: String = id_a if id_a < id_b else id_b
+			var upper: String = id_b if id_a < id_b else id_a
+			pairs.append([lower, upper])
+
+	# Prepare cache dir
+	var da: DirAccess = DirAccess.open("user://")
+	if da != null:
+		da.make_dir_recursive("cache/terrain_tilesets")
+
+	# Resolve tilesets and cache images
+	for p in pairs:
+		var lower_id: String = p[0]
+		var upper_id: String = p[1]
+		var lower_doc: Dictionary = _terrain_by_id.get(lower_id, {})
+		if lower_doc.size() == 0:
+			continue
+		var neighbours = lower_doc.get("neighbours", {})
+		var tileset_ref = neighbours.get(upper_id, null)
+		var tsid: String = ""
+		if tileset_ref != null:
+			if typeof(tileset_ref) == TYPE_DICTIONARY and tileset_ref.has("_id"):
+				tsid = str(tileset_ref._id)
+			else:
+				tsid = str(tileset_ref)
+		if tsid == "" or tsid.length() < 24:
+			continue # not implemented yet
+
+		# If not cached locally, fetch tileset doc to find remote path, then download
+		var local_path: String = "%s/%s.png" % [TILESET_CACHE_DIR, tsid]
+		if not FileAccess.file_exists(local_path):
+			print("[GameManager][Fetch][TilesetDoc] Requesting tileset doc:", tsid)
+			var tsdoc: Dictionary = await TILESET_DAL.fetch_by_id(tsid)
+			if tsdoc != null and tsdoc.size() > 0:
+				print("[GameManager][Fetch][TilesetDoc] Success:", tsid)
+			else:
+				print("[GameManager][Fetch][TilesetDoc] Failed to fetch:", tsid)
+			if tsdoc == null or tsdoc.size() == 0:
+				continue
+			var texture: Dictionary = tsdoc.get("texture", {})
+			var image_path: String = str(texture.get("imagePath", ""))
+			if image_path.begins_with("web/"):
+				image_path = "/" + image_path.substr(4)
+			elif not image_path.begins_with("/"):
+				image_path = "/" + image_path
+			var api := (Engine.get_main_loop() as SceneTree).root.get_node("ApiClient")
+			if api != null:
+				print("[GameManager][Fetch][TilesetImage] Downloading:", image_path)
+				var bytes: PackedByteArray = await api.get_bytes(image_path)
+	if loc == null:
+		return
+	# Resolve biome id (Locale.biome is typically a String id)
+	var biome_id: String = ""
+	var biome_val: Variant = loc.biome
+	if biome_val is Dictionary:
+		var bdict: Dictionary = biome_val
+		if bdict.has("_id"):
+			biome_id = str(bdict.get("_id"))
+	elif biome_val is String:
+		biome_id = str(biome_val)
+	if biome_id == "":
+		return
+
+	# Ensure biome in cache (try world first)
+	var biome: Biome = null
+	if _biome_by_id.has(biome_id):
+		biome = _biome_by_id[biome_id]
+	else:
+		for biome_item in current_world.biomes:
+			if biome_item != null and str(biome_item.id) == biome_id:
+				biome = biome_item
+				break
+		if biome == null:
+			biome = await BIOME_DAL.fetch_by_id(biome_id)
+			if biome != null:
+				_biome_by_id[biome_id] = biome
+	if biome == null:
+		return
+
+	# Ensure terrain cache for all biome terrains
+	var terrain_ids: Array[String] = []
+	if biome.terrains is Array:
+		for t in biome.terrains:
+			var tid: String = str(t)
+			if tid != "" and not terrain_ids.has(tid):
+				terrain_ids.append(tid)
+
+	# Fetch any missing terrains
+	for tid in terrain_ids:
+		if not _terrain_by_id.has(tid):
+			print("[GameManager][Fetch][Terrain] Requesting terrain doc:", tid)
+			var tdoc: Dictionary = await TERRAIN_DAL.fetch_by_id(tid)
+			if tdoc != null and tdoc.size() > 0:
+				print("[GameManager][Fetch][Terrain] Success:", tid)
+			else:
+				print("[GameManager][Fetch][Terrain] Failed to fetch:", tid)
+			if tdoc != null and tdoc.size() > 0:
+				_terrain_by_id[tid] = tdoc
+
+	# Build unordered pairs and check neighbour mappings for implemented tilesets
+	var pairs: Array = [] # [ [lowerId, upperId] ]
+	for i in range(0, terrain_ids.size()):
+		for j in range(i+1, terrain_ids.size()):
+			var id_a: String = terrain_ids[i]
+			var id_b: String = terrain_ids[j]
+			var lower: String = id_a if id_a < id_b else id_b
+			var upper: String = id_b if id_a < id_b else id_a
+			pairs.append([lower, upper])
+
+	# Prepare cache dir
+	var da: DirAccess = DirAccess.open("user://")
+	if da != null:
+		da.make_dir_recursive("cache/terrain_tilesets")
+
+	# Resolve tilesets and cache images
+	for p in pairs:
+		var lower_id: String = p[0]
+		var upper_id: String = p[1]
+		var lower_doc: Dictionary = _terrain_by_id.get(lower_id, {})
+		if lower_doc.size() == 0:
+			continue
+		var neighbours = lower_doc.get("neighbours", {})
+		var tileset_ref = neighbours.get(upper_id, null)
+		var tsid: String = ""
+		if tileset_ref != null:
+			if typeof(tileset_ref) == TYPE_DICTIONARY and tileset_ref.has("_id"):
+				tsid = str(tileset_ref._id)
+			else:
+				tsid = str(tileset_ref)
+		if tsid == "" or tsid.length() < 24:
+			continue # not implemented yet
+
+		# If not cached locally, fetch tileset doc to find remote path, then download
+		var local_path: String = "%s/%s.png" % [TILESET_CACHE_DIR, tsid]
+		if not FileAccess.file_exists(local_path):
+			print("[GameManager][Fetch][TilesetDoc] Requesting tileset doc:", tsid)
+			var tsdoc: Dictionary = await TILESET_DAL.fetch_by_id(tsid)
+			if tsdoc != null and tsdoc.size() > 0:
+				print("[GameManager][Fetch][TilesetDoc] Success:", tsid)
+			else:
+				print("[GameManager][Fetch][TilesetDoc] Failed to fetch:", tsid)
+			if tsdoc == null or tsdoc.size() == 0:
+				continue
+			var texture: Dictionary = tsdoc.get("texture", {})
+			var image_path: String = str(texture.get("imagePath", ""))
+			if image_path.begins_with("web/"):
+				image_path = "/" + image_path.substr(4)
+			elif not image_path.begins_with("/"):
+				image_path = "/" + image_path
+			var api := (Engine.get_main_loop() as SceneTree).root.get_node("ApiClient")
+			if api != null:
+				print("[GameManager][Fetch][TilesetImage] Downloading:", image_path)
+				var bytes: PackedByteArray = await api.get_bytes(image_path)
+				if bytes != null and bytes.size() > 0:
+					var f := FileAccess.open(local_path, FileAccess.WRITE)
+					if f:
+						f.store_buffer(bytes)
+						f.close()
+						print("[GameManager][Fetch][TilesetImage] Success; cached:", local_path)
+						# Stash tileset metadata for mapping later
+						lower_id = ""
+						upper_id = ""
+						if tsdoc.has("lowerTerrain"): lower_id = str(tsdoc.get("lowerTerrain"))
+						if tsdoc.has("upperTerrain"): upper_id = str(tsdoc.get("upperTerrain"))
+						_tileset_meta_by_id[tsid] = {
+							"remote_path": image_path,
+							"local_path": local_path,
+							"lowerTerrainId": lower_id,
+							"upperTerrainId": upper_id,

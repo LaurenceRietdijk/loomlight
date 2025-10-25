@@ -34,3 +34,4 @@ func get_api_key() -> String:
 func has_api_key() -> bool:
     return api_key != null and api_key.strip_edges() != ""
 
+

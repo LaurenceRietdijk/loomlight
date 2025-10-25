@@ -54,3 +54,4 @@ func init_for_world(world: World) -> void:
     else:
         # On failure, still record world id for future attempts
         active_world_id = wid
+

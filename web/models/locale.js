@@ -95,7 +95,7 @@
         x: Number((init.coordinates && init.coordinates.x) || 0),
         y: Number((init.coordinates && init.coordinates.y) || 0),
       };
-      // Biome: may be an id string or a populated object { _id, name, description, locales }
+      // Biome: may be an id string or a populated object { _id, name, description, locales, terrains }
       this.biome = init.biome || null;
       // References (ids or embedded objects depending on payload)
       this.primary_race = init.primary_race || null; // may be id or object
@@ -122,7 +122,10 @@
         const b = data.biome;
         if (b && typeof b === 'object') {
           // Keep a light representation if present
-          biome = { _id: String(b._id || b.id || ''), name: b.name || '', description: b.description || '', locales: b.locales || {} };
+          const terrains = Array.isArray(b.terrains)
+            ? b.terrains.map((t) => (t && typeof t === 'object') ? String(t._id || t.id || '') : String(t || '')).filter((s) => !!s)
+            : [];
+          biome = { _id: String(b._id || b.id || ''), name: b.name || '', description: b.description || '', locales: b.locales || {}, terrains };
         } else if (b) {
           biome = String(b);
         }

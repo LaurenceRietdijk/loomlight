@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://douf0woq3hmhv"]
+[gd_scene load_steps=11 format=3 uid="uid://douf0woq3hmhv"]
 
 [ext_resource type="Script" uid="uid://cj3dkqsfjbwj3" path="res://scripts/ui/game.gd" id="1_p57ef"]
 [ext_resource type="Texture2D" uid="uid://dq40ogk7kvqk5" path="res://assets/images/default.png" id="1_uwrxv"]
@@ -21,10 +21,17 @@ tile_offset_axis = 1
 tile_size = Vector2i(128, 64)
 sources/0 = SubResource("TileSetAtlasSource_yqjtg")
 
+[sub_resource type="TileSet" id="TileSet_u5sy4"]
+tile_shape = 1
+tile_layout = 5
+tile_offset_axis = 1
+tile_size = Vector2i(32, 16)
+
 [node name="Game" type="Node2D"]
 script = ExtResource("1_p57ef")
 
 [node name="MapView" type="Node2D" parent="."]
+visible = false
 script = ExtResource("2_u5sy4")
 
 [node name="WorldMap" type="TileMapLayer" parent="MapView"]
@@ -34,29 +41,55 @@ tile_set = SubResource("TileSet_lnu2h")
 [node name="SelectionOverlay" type="Node2D" parent="MapView"]
 script = ExtResource("7_selov")
 
+[node name="ScreenButtons" type="Control" parent="MapView"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 160.0
+offset_bottom = 44.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[node name="HBox" type="HBoxContainer" parent="MapView/ScreenButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 0
+
+[node name="ShowLocaleBtn" type="Button" parent="MapView/ScreenButtons/HBox"]
+layout_mode = 2
+text = "Show Locale"
+
 [node name="LoadingScreen" type="Control" parent="."]
+visible = false
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("4_gee14")
 
 [node name="Overlay" type="ColorRect" parent="LoadingScreen"]
-layout_mode = 0
+layout_mode = 1
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-size_flags_horizontal = 3
-size_flags_vertical = 3
-color = Color(0, 0, 0, 0.75)
-
-[node name="VBox" type="VBoxContainer" parent="LoadingScreen"]
-layout_mode = 0
-anchor_left = 0.25
-anchor_top = 0.65
-anchor_right = 0.75
-anchor_bottom = 0.85
 grow_horizontal = 2
 grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+color = Color(1, 0, 0, 1)
+
+[node name="VBox" type="VBoxContainer" parent="LoadingScreen"]
+layout_mode = 1
+anchors_preset = -1
+anchor_right = 0.75
+anchor_bottom = 0.85
+offset_left = 130.0
+offset_top = 132.0
+offset_right = 1012.0
+offset_bottom = 541.0
 size_flags_horizontal = 3
 size_flags_vertical = 3
 alignment = 1
@@ -73,7 +106,30 @@ layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="LocaleScreen" type="Node2D" parent="."]
+visible = false
 script = ExtResource("5_0tnpc")
+
+[node name="ScreenButtons" type="Control" parent="LocaleScreen"]
+layout_mode = 3
+anchors_preset = 0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = 140.0
+offset_bottom = 44.0
+grow_horizontal = 0
+grow_vertical = 0
+
+[node name="HBox" type="HBoxContainer" parent="LocaleScreen/ScreenButtons"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 0
+
+[node name="ShowMapBtn" type="Button" parent="LocaleScreen/ScreenButtons/HBox"]
+layout_mode = 2
+text = "Show Map"
+
+[node name="Terrains" type="TileMapLayer" parent="LocaleScreen"]
+tile_set = SubResource("TileSet_u5sy4")
 
 [node name="DialogueScreen" type="Control" parent="."]
 visible = false
@@ -157,3 +213,6 @@ placeholder_text = "Type your message..."
 [node name="SendButton" type="Button" parent="DialogueScreen/Panel/HBox/Right/InputRow"]
 layout_mode = 2
 text = "Send"
+
+[connection signal="pressed" from="MapView/ScreenButtons/HBox/ShowLocaleBtn" to="." method="_on_show_locale_pressed"]
+[connection signal="pressed" from="LocaleScreen/ScreenButtons/HBox/ShowMapBtn" to="." method="_on_show_map_pressed"]

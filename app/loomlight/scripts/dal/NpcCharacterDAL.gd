@@ -38,3 +38,4 @@ static func fetch_many(world_id: String, ids: Array, full: bool = false) -> Dict
         if ch != null and ch.id != "":
             out[ch.id] = ch
     return out
+

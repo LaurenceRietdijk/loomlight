@@ -101,3 +101,4 @@ func ensure_active(world_id: String, player_character_id: String) -> Dictionary:
         var err_text: String = str(result.get("error", ""))
         print("[CharacterDAL] ensure_active ERROR ", code, ": ", err_text)
     return {}
+

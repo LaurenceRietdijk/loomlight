@@ -42,13 +42,12 @@ Output JSON shape (array; same length/order as requested types):
 
     let parsedArray = [];
     try {
-      const content = await gpt.chatJSON(
-        [
-          { role: "system", content: systemMsg },
-          { role: "user", content: userMsg },
-        ],
-        { model: "gpt-3.5-turbo", temperature: 0.8, max_tokens: 2000 }
-      );
+      const content = await gpt.chatJSONPrompt(
+      systemMsg,
+      userMsg,
+      { temperature: 0.8, max_tokens: 2000 }
+    );
+
       parsedArray = Array.isArray(content) ? content : [];
       if (!Array.isArray(parsedArray)) throw new Error("Response is not an array");
     } catch (e) {

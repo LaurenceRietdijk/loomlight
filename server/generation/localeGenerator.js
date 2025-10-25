@@ -90,19 +90,14 @@ It has a population of about ${population} and contains the following buildings:
     )}.
 Describe the locale as immersive, grounded, and contextually aware.`;
 
-    const generatedLocale = await gpt.chatJSON(
-      [
-        {
-          role: "system",
-          content:
-            "You are an AI that generates JSON data for locales in a medieval fantasy world.\n" +
+    const generatedLocale = await gpt.chatJSONPrompt(
+      "You are an AI that generates JSON data for locales in a medieval fantasy world.\n" +
             "Your response must be valid JSON and contain no extra text.\n\n" +
             "Use this format:\n{\n  \"name\": \"Locale Name\",\n  \"type\": \"Camp\", \"Hamlet\", \"Village\", \"Wilderness\", \"Cave\", \"Dungeon\",\n  \"description\": \"A short but immersive description of the location.\",\n  \"special_features\": [\"A list of unique landmarks, events, or history tied to this place.\"]\n}",
-        },
-        { role: "user", content: prompt },
-      ],
-      { model: "gpt-3.5-turbo", max_tokens: 300, temperature: 0.8 }
+      prompt,
+      { max_tokens: 300, temperature: 0.8 }
     );
+
 
     // Choose a primary race
     const races = await RaceDAL.getRaces(world_id);

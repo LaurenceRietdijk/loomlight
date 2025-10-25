@@ -9,6 +9,7 @@
     playerCharacters: [],
     selectedPlayerCharacter: null,
     quests: [],
+    terrains: [],
   };
 
   // Tab wiring
@@ -18,6 +19,7 @@
     map: document.getElementById('tab-map'),
     locale: document.getElementById('tab-locale'),
     biomes: document.getElementById('tab-biomes'),
+    terrains: document.getElementById('tab-terrains'),
     character: document.getElementById('tab-character'),
     quests: document.getElementById('tab-quests'),
   };
@@ -42,6 +44,9 @@
     }
     if (key === 'biomes') {
       loadBiomes();
+    }
+    if (key === 'terrains') {
+      loadTerrains();
     }
   }
   document.querySelector('.tabs').addEventListener('click', (e) => {
@@ -73,6 +78,18 @@
   const elBiomesList = document.getElementById('biomes-list');
   const elBiomesErr = document.getElementById('biomes-error');
   const btnGenerateBiome = document.getElementById('btn-generate-biome');
+
+  // Terrains UI
+  const elTerrainsList = document.getElementById('terrains-list');
+  const elTerrainsErr = document.getElementById('terrains-error');
+  const formTerrain = document.getElementById('terrain-form');
+  const inputTerrainName = document.getElementById('terrain-name');
+  const inputTerrainDescription = document.getElementById('terrain-description');
+  const formTerrainTileset = document.getElementById('terrain-tileset-form');
+  const selectTilesetLower = document.getElementById('terrain-tileset-lower');
+  const selectTilesetUpper = document.getElementById('terrain-tileset-upper');
+  const elTerrainTilesetStatus = document.getElementById('terrain-tileset-status');
+  const elTerrainTilesetPreview = document.getElementById('terrain-tileset-preview');
 
   async function loadWorlds() {
     elWorldErr.textContent = '';
@@ -358,7 +375,225 @@
       }
     });
   }
+  async function loadTerrains(force = false) {
+    if (!elTerrainsList) return;
+    if (elTerrainsErr) elTerrainsErr.textContent = '';
+    let terrains = [];
+    const hasGameCache = !force && window.Game && typeof window.Game.getAllTerrains === 'function';
+    if (hasGameCache) {
+      try { terrains = window.Game.getAllTerrains(); } catch { terrains = []; }
+    }
+    const needsFetch = !Array.isArray(terrains) || terrains.length === 0 || force;
+    try {
+      if (needsFetch) {
+        const res = await fetch('/terrain');
+        if (!res.ok) throw new Error('Failed to load terrains');
+        const data = await res.json();
+        const raw = data.terrains || [];
+        state.terrains = Array.isArray(raw) ? raw.slice() : [];
+        if (window.Game && typeof window.Game.setTerrainsFromArray === 'function') {
+          terrains = window.Game.setTerrainsFromArray(state.terrains);
+        } else {
+          terrains = state.terrains.slice();
+        }
+      } else {
+        state.terrains = Array.isArray(terrains) ? terrains.slice() : [];
+      }
+      renderTerrains(terrains);
+    } catch (err) {
+      console.error(err);
+      if (elTerrainsErr) elTerrainsErr.textContent = 'Error loading terrains.';
+      state.terrains = [];
+      renderTerrains([]);
+    }
+  }
 
+  function renderTerrains(list) {
+    if (!elTerrainsList) return;
+    const arr = Array.isArray(list) ? list.slice() : [];
+    const sorted = arr.slice().sort((a, b) => {
+      const an = a && a.name ? String(a.name) : '';
+      const bn = b && b.name ? String(b.name) : '';
+      return an.localeCompare(bn, undefined, { sensitivity: 'base' });
+    });
+    state.terrains = sorted.slice();
+    if (!sorted.length) {
+      elTerrainsList.innerHTML = '<div class="world-meta">No terrains yet. Add one above or generate via API.</div>';
+    } else {
+      elTerrainsList.innerHTML = '';
+      sorted.forEach((terrain) => {
+        const card = terrainCardHTML(terrain);
+        if (card) {
+          const el = htmlToElement(card);
+          if (el) elTerrainsList.appendChild(el);
+        }
+      });
+    }
+    syncTerrainSelectOptions(sorted);
+  }
+
+  function terrainCardHTML(terrain) {
+    if (!terrain) return '';
+    const id = terrain._id || terrain.id || '';
+    const safeId = escapeHtml(String(id || ''));
+    const name = terrain.name ? escapeHtml(String(terrain.name)) : (safeId || 'Terrain');
+    const hasDescription = terrain.description && String(terrain.description).trim().length;
+    const descriptionHtml = hasDescription
+      ? `<div class="world-meta">${escapeHtml(String(terrain.description))}</div>`
+      : '<div class="world-meta muted">No description</div>';
+    const neighbours = terrain.neighbours && typeof terrain.neighbours === 'object'
+      ? Object.values(terrain.neighbours).filter(Boolean).length
+      : 0;
+    const neighbourHtml = `<div class="world-meta">Neighbours: ${neighbours}</div>`;
+    const texture = terrain.texture && (terrain.texture.imagePath || terrain.texture.reference);
+    const textureHtml = texture
+      ? '<div class="world-meta">Texture: available</div>'
+      : '<div class="world-meta muted">Texture: pending</div>';
+    const idHtml = safeId ? `<div class="world-meta muted">ID: ${safeId}</div>` : '';
+    return `
+      <div class="world-card" data-terrain="${safeId}">
+        <div class="world-title">${name}</div>
+        ${descriptionHtml}
+        ${neighbourHtml}
+        ${textureHtml}
+        ${idHtml}
+      </div>
+    `;
+  }
+
+  function syncTerrainSelectOptions(list) {
+    if (!selectTilesetLower || !selectTilesetUpper) return;
+    const terrains = Array.isArray(list) ? list.slice() : [];
+    const lowerPrev = selectTilesetLower.value;
+    const upperPrev = selectTilesetUpper.value;
+
+    const buildOptions = (select, previous) => {
+      const frag = document.createDocumentFragment();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '-- Select terrain --';
+      frag.appendChild(placeholder);
+
+      terrains.forEach((terrain) => {
+        const id = terrain && (terrain._id || terrain.id) ? String(terrain._id || terrain.id) : '';
+        if (!id) return;
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = terrain.name ? String(terrain.name) : id;
+        if (id === previous) {
+          opt.selected = true;
+        }
+        frag.appendChild(opt);
+      });
+
+      select.innerHTML = '';
+      select.appendChild(frag);
+
+      if (previous && terrains.some((t) => String(t._id || t.id) === previous)) {
+        select.value = previous;
+      } else {
+        select.value = '';
+      }
+    };
+
+    buildOptions(selectTilesetLower, lowerPrev);
+    buildOptions(selectTilesetUpper, upperPrev);
+  }
+
+  if (formTerrain) {
+    formTerrain.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!inputTerrainName || !inputTerrainDescription) return;
+      const name = inputTerrainName.value.trim();
+      const description = inputTerrainDescription.value.trim();
+      if (!name || !description) {
+        if (elTerrainsErr) elTerrainsErr.textContent = 'Please provide a name and description.';
+        return;
+      }
+      if (elTerrainsErr) elTerrainsErr.textContent = '';
+      const submitBtn = formTerrain.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn ? submitBtn.textContent : '';
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+      try {
+        const res = await fetch('/terrain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description }),
+        });
+        if (!res.ok) {
+          const errorText = await res.text();
+          let message = errorText || 'Failed to create terrain';
+          try {
+            const parsed = JSON.parse(errorText);
+            message = parsed.error || parsed.message || message;
+          } catch {}
+          throw new Error(message);
+        }
+        await res.json();
+        inputTerrainName.value = '';
+        inputTerrainDescription.value = '';
+        try { if (window.Game && typeof window.Game.clearTerrains === 'function') window.Game.clearTerrains(); } catch {}
+        await loadTerrains(true);
+        showToast('Terrain created');
+      } catch (err) {
+        console.error(err);
+        if (elTerrainsErr) elTerrainsErr.textContent = err?.message || 'Error creating terrain.';
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel || 'Add Terrain'; }
+      }
+    });
+  }
+
+  if (formTerrainTileset) {
+    formTerrainTileset.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!selectTilesetLower || !selectTilesetUpper) return;
+      const lowerId = selectTilesetLower.value;
+      const upperId = selectTilesetUpper.value;
+      if (!lowerId || !upperId) {
+        if (elTerrainTilesetStatus) elTerrainTilesetStatus.textContent = 'Select two terrains to generate a tileset.';
+        return;
+      }
+      if (elTerrainTilesetStatus) elTerrainTilesetStatus.textContent = '';
+      if (elTerrainTilesetPreview) {
+        elTerrainTilesetPreview.innerHTML = '';
+      }
+      const submitBtn = formTerrainTileset.querySelector('button[type="submit"]');
+      const originalLabel = submitBtn ? submitBtn.textContent : '';
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Generating...'; }
+      try {
+        const res = await fetch('/terrain/tilesets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lower_id: lowerId, upper_id: upperId }),
+        });
+        if (!res.ok) {
+          const errorText = await res.text();
+          let message = errorText || 'Failed to generate tileset';
+          try {
+            const parsed = JSON.parse(errorText);
+            message = parsed.error || parsed.message || message;
+          } catch {}
+          throw new Error(message);
+        }
+        const data = await res.json();
+        const jobId = data?.tilesetJob?.jobId || data?.jobId;
+        if (elTerrainTilesetStatus) {
+          elTerrainTilesetStatus.textContent = jobId
+            ? `Tileset generation queued (job ${jobId}).`
+            : 'Tileset generation requested.';
+        }
+        showToast('Tileset generation started');
+        try { if (window.Game && typeof window.Game.clearTerrains === 'function') window.Game.clearTerrains(); } catch {}
+        await loadTerrains(true);
+      } catch (err) {
+        console.error(err);
+        if (elTerrainTilesetStatus) elTerrainTilesetStatus.textContent = err?.message || 'Error generating tileset.';
+      } finally {
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalLabel || 'Generate Tileset'; }
+      }
+    });
+  }
   async function ensureActivePCDoc(worldId, pcId) {
     try {
       await fetch('/activePlayerCharacter/enter', {
@@ -1420,8 +1655,7 @@ try {
   // Init
   updateNavLocks();
   loadWorlds();
+  loadTerrains();
   loadPlayerCharacters();
   // Quest SSE removed; no initial stream connection
 })();
-
-

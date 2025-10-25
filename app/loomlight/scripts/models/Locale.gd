@@ -140,3 +140,4 @@ func _apply_from(other: Locale) -> void:
     resources = other.resources.duplicate(true)
     population = other.population
     _loaded_full = true
+

@@ -163,3 +163,52 @@ table.table th { background: var(--cell-hover); }
   max-width: 320px;
   z-index: 9999;
 }
+/* Terrain tileset manual preview */
+.terrain-tileset-form button {
+  background: var(--cell);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.terrain-tileset-form button:hover {
+  background: var(--cell-hover);
+}
+.tileset-preview {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+.tileset-preview .tileset-card {
+  background: var(--cell);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.tileset-preview img {
+  width: 100%;
+  height: auto;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.tileset-preview .tile-name {
+  font-weight: 600;
+  font-size: 12px;
+}
+.tileset-preview .tile-meta {
+  color: var(--muted);
+  font-size: 11px;
+}
+.tileset-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}

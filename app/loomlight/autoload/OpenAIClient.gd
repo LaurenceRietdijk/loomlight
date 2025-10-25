@@ -72,3 +72,4 @@ func make_system_prompt(character_name: String, world_name: String = "", player_
     parts.append("Respond as the character would speak in-world. Keep replies concise unless asked to elaborate.")
     return " ".join(parts)
 
+

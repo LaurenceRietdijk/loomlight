@@ -319,13 +319,12 @@ static async #generateClearQuest(world_id, character_id) {
         `Camp Summary: ${context.targetCamp.description}`;
 
       try {
-        const parsed = await gpt.chatJSON(
-          [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          { model: "gpt-3.5-turbo", max_tokens: 250, temperature: 0.7 }
-        );
+        const parsed = await gpt.chatJSONPrompt(
+      system,
+      user,
+      { max_tokens: 250, temperature: 0.7 }
+    );
+
         if (
           parsed &&
           typeof parsed.title === "string" &&

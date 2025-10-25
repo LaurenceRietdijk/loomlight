@@ -33,11 +33,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif mbe.button_index == MOUSE_BUTTON_LEFT and mbe.pressed:
 			_select_tile_at_global_pos(get_viewport().get_mouse_position())
 
-	elif event is InputEventMouseMotion and pan_active:
+	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		var delta := mm.position - pan_last_mouse_pos
-		position += delta
-		pan_last_mouse_pos = mm.position
+		# Update hover highlight on mouse move
+		_hover_tile_at_global_pos(get_viewport().get_mouse_position())
+		# If panning, move the view
+		if pan_active:
+			var delta := mm.position - pan_last_mouse_pos
+			position += delta
+			pan_last_mouse_pos = mm.position
 
 func _select_tile_at_global_pos(gpos: Vector2) -> void:
 	if world_map == null:
@@ -68,6 +72,30 @@ func _select_tile_at_global_pos(gpos: Vector2) -> void:
 	else:
 		queue_redraw()
 	emit_signal("tile_selected", cell)
+
+func _hover_tile_at_global_pos(gpos: Vector2) -> void:
+	if world_map == null:
+		if has_node("WorldMap"):
+			world_map = $WorldMap
+		else:
+			return
+	var local_in_worldmap: Vector2 = world_map.to_local(gpos)
+	var cell: Vector2i
+	if world_map.has_method("local_to_map"):
+		cell = world_map.call("local_to_map", local_in_worldmap)
+	else:
+		var ts: TileSet = null
+		if world_map.has_method("get"):
+			ts = world_map.get("tile_set") as TileSet
+		elif "tile_set" in world_map:
+			ts = world_map.tile_set
+		var sz: Vector2i = ts.tile_size if ts != null else Vector2i(128, 64)
+		cell = Vector2i(round(local_in_worldmap.x / float(sz.x)), round(local_in_worldmap.y / float(sz.y)))
+	selected_cell = cell
+	if overlay != null:
+		overlay.call_deferred("update_selection", world_map, selected_cell)
+	else:
+		queue_redraw()
 
 func _draw() -> void:
 	# No-op: selection highlight is rendered in overlay child

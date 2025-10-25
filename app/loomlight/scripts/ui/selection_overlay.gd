@@ -42,3 +42,4 @@ func _draw() -> void:
     loop_pts.append(pts[0])
     draw_polyline(loop_pts, Color(1, 1, 0, 0.85), 2.0, true)
 
+

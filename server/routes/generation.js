@@ -1,15 +1,10 @@
 const mongoose = require("mongoose");
-const OpenAI = require("openai");
+const gpt = require("../services/gptService");
 const express = require("express");
 const router = express.Router();
 const World = require("../models/world");
 const getDatabaseConnection = require("../config/worldDBs"); 
 const { schema: FactionSchema } = require("../models/faction"); 
-
-// Create an OpenAI instance
-const openai = new OpenAI({
-  apiKey: process.env.API_KEY, // Ensure this is set in your .env file
-});
 
 // Get all events
 router.get("/", async (req, res) => {
@@ -18,18 +13,15 @@ router.get("/", async (req, res) => {
 
   // Generate name
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "user",
-          content: "Generate a creative and unique name for a fantasy world. The name should be evocative and suitable for a medieval fantasy setting. Only provide the name without any additional text or explanation.",
-        },
-      ],
-      max_tokens: 10,
-      temperature: 0.7,
-    });
-    worldName = completion.choices[0].message.content;
+    const worldNameResponse = await gpt.chatPrompt(
+      null,
+      "Generate a creative and unique name for a fantasy world. The name should be evocative and suitable for a medieval fantasy setting. Only provide the name without any additional text or explanation.",
+      { max_tokens: 10, temperature: 0.7 }
+    );
+    worldName = worldNameResponse.trim();
+    if (!worldName) {
+      throw new Error("Empty response from GPT when generating world name");
+    }
     console.log("Generated World Name:", worldName);
   } catch (error) {
     console.error(
@@ -41,18 +33,15 @@ router.get("/", async (req, res) => {
 
   // Generate WorldBuilding text
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "user",
-          content: `Provide detailed worldbuilding for a medieval fantasy world named "${worldName}".`,
-        },
-      ],
-      max_tokens: 1000,
-      temperature: 0.8,
-    });
-    worldBuilding = completion.choices[0].message.content;
+    const worldBuildingResponse = await gpt.chatPrompt(
+      null,
+      `Provide detailed worldbuilding for a medieval fantasy world named "${worldName}".`,
+      { max_tokens: 1000, temperature: 0.8 }
+    );
+    worldBuilding = worldBuildingResponse.trim();
+    if (!worldBuilding) {
+      throw new Error("Empty response from GPT when generating worldbuilding text");
+    }
     console.log("Worldbuilding Text:", worldBuilding);
   } catch (error) {
     console.error(
@@ -117,14 +106,9 @@ router.get("/:world_id/factions", async (req, res) => {
   const db = getDatabaseConnection(world_id);
   const Faction = db.model("Faction", FactionSchema);
 
-  // OpenAI prompt
+  // GPT factions generation
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
-      messages: [
-        {
-          role: "system",
-          content: `You are an AI assistant that generates JSON for factions in a medieval fantasy world.
+    const systemPrompt = `You are an AI assistant that generates JSON for factions in a medieval fantasy world.
                     Your response **must be valid JSON and contain no extra text**.
                     Each faction should follow this structure:
                     {
@@ -147,26 +131,27 @@ router.get("/:world_id/factions", async (req, res) => {
                         - Do not create factions outside of the generated list.
                         - Do not add factions to "allies" or "enemies" that were not previously generated.
 
-                    Return an **array of multiple factions** inside a JSON array.`,
-        },
-        {
-          role: "user",
-          content: `Generate factions for a world with the following worldbuilding:
+                    Return an **array of multiple factions** inside a JSON array.`;
+    const userPrompt = `Generate factions for a world with the following worldbuilding:
 
                     ${world.WorldBuilding}
 
-                    The factions should fit the world and feel natural within its politics, conflicts, and cultures.`,
-        },
-      ],
+                    The factions should fit the world and feel natural within its politics, conflicts, and cultures.`;
+    const rawFactions = await gpt.chatPrompt(systemPrompt, userPrompt, {
       max_tokens: 1500,
       temperature: 0.8,
     });
 
     // Log the raw GPT response to confirm allies/enemies are correct
-    console.log("Raw GPT Response:", completion.choices[0].message.content);
+    console.log("Raw GPT Response:", rawFactions);
 
-    // Parse GPT response
-    let factions = JSON.parse(completion.choices[0].message.content);
+    let factions;
+    try {
+      factions = JSON.parse(rawFactions);
+    } catch (parseError) {
+      console.error("Failed to parse factions JSON:", parseError);
+      throw new Error("GPT returned invalid JSON for factions");
+    }
 
     // Step 1: Assign predefined ObjectIds to each faction using faction_id
     const factionMap = {};
@@ -186,10 +171,10 @@ router.get("/:world_id/factions", async (req, res) => {
         political_influence: faction.resources.political_influence,
       },
       allies: (faction.allies || [])
-        .map((id) => factionMap[id] || null) // Map faction_id → ObjectId
+        .map((id) => factionMap[id] || null) // Map faction_id -> ObjectId
         .filter((id) => id), // Remove null values
       enemies: (faction.enemies || [])
-        .map((id) => factionMap[id] || null) // Map faction_id → ObjectId
+        .map((id) => factionMap[id] || null) // Map faction_id -> ObjectId
         .filter((id) => id), // Remove null values
     }));
 
@@ -213,8 +198,6 @@ router.get("/:world_id/factions", async (req, res) => {
     res.status(500).json({ error: "Server Error" });
   }
 });
-
-
 
 router.delete("/:world_id/factions", async (req, res) => {
   const { world_id } = req.params;
@@ -241,3 +224,4 @@ router.delete("/:world_id/factions", async (req, res) => {
 
 
 module.exports = router;
+

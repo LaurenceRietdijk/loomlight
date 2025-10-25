@@ -1,0 +1,44 @@
+
+func _load_locale_textures_into_tileset(ts: TileSet) -> PackedInt32Array:
+    var out := PackedInt32Array()
+    if ts == null:
+    return out
+    # Expect GameManager to have cached needed tilesets under this dir
+    var dir_path := "user://cache/terrain_tilesets"
+    var da := DirAccess.open("user://")
+    if da == null:
+        return out
+    if not DirAccess.dir_exists_absolute(dir_path):
+        return out
+    var sub := DirAccess.open(dir_path)
+    if sub == null:
+        return out
+    sub.list_dir_begin()
+    while true:
+        var fn := sub.get_next()
+        if fn == "":
+            break
+        if sub.current_is_dir():
+            continue
+        if not fn.to_lower().ends_with(".png"):
+            continue
+        var full := dir_path.rstrip("/") + "/" + fn
+        var img := Image.new()
+        var err := img.load(full)
+        if err != OK:
+            print("[LocaleScreen][Tileset] Failed to load image:", full)
+            continue
+        var tex := ImageTexture.create_from_image(img)
+        var src := TileSetAtlasSource.new()
+        src.texture = tex
+        src.texture_region_size = Vector2i(img.get_width(), img.get_height())
+        var c0 := Vector2i(0, 0)
+        if not src.has_tile(c0):
+            src.create_tile(c0)
+        var sid := ts.get_next_source_id()
+        ts.add_source(src, sid)
+        out.append(sid)
+        report_texture_loaded(fn, sid)
+    sub.list_dir_end()
+    return out
+

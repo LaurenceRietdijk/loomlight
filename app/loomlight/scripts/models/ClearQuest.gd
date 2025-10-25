@@ -55,3 +55,4 @@ func update_progress(world) -> void:
 
 func _on_character_state_changed(_ch: Character, _old: String, _new: String, world) -> void:
     await update_progress(world)
+

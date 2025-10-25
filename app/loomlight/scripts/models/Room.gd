@@ -30,3 +30,4 @@ func to_dict() -> Dictionary:
         if c is ItemContainer:
             out.containers.append(c.to_dict())
     return out
+

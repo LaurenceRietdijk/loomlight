@@ -14,6 +14,7 @@
         <button class="tab-button" data-tab="map">Map</button>
         <button class="tab-button" data-tab="locale">Locale</button>
         <button class="tab-button" data-tab="biomes">Biomes</button>
+        <button class="tab-button" data-tab="terrains">Terrains</button>
         <button class="tab-button" data-tab="character" disabled>Character</button>
         <button class="tab-button" data-tab="quests" disabled>Quests</button>
       </nav>
@@ -98,6 +99,36 @@
         </div>
       </section>
 
+      <section id="tab-terrains" class="tab-panel">
+        <div class="panel">
+          <h2 style="margin-top:0;">Terrains</h2>
+          <form id="terrain-form" class="terrain-form" style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; align-items:flex-start;">
+            <input id="terrain-name" type="text" placeholder="Terrain name" required style="flex:1 1 200px;" />
+            <textarea id="terrain-description" placeholder="Terrain description" rows="2" required style="flex:1 1 260px; min-width:220px;"></textarea>
+            <button type="submit" id="btn-create-terrain" style="flex:0 0 auto;">Add Terrain</button>
+          </form>
+          </div>
+          <div id="terrains-list" class="world-list"></div>
+          <div id="terrains-error" class="error"></div>
+        </div>
+        <div class="panel" style="margin-top:12px;">
+          <h3 style="margin:0 0 12px 0;">Manual Tileset Generator</h3>
+          <form id="terrain-tileset-form" class="terrain-tileset-form" style="display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; margin-bottom:12px;">
+            <label style="flex:1 1 220px; display:flex; flex-direction:column; gap:4px;">
+              <span class="muted" style="font-size:12px;">Lower terrain</span>
+              <select id="terrain-tileset-lower" required style="width:100%; background:var(--cell); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px;"></select>
+            </label>
+            <label style="flex:1 1 220px; display:flex; flex-direction:column; gap:4px;">
+              <span class="muted" style="font-size:12px;">Upper terrain</span>
+              <select id="terrain-tileset-upper" required style="width:100%; background:var(--cell); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 8px;"></select>
+            </label>
+            <button type="submit" id="btn-generate-tileset" style="flex:0 0 auto;">Generate Tileset</button>
+          </form>
+          <div id="terrain-tileset-status" class="muted" style="min-height:18px;"></div>
+          <div id="terrain-tileset-preview" class="tileset-preview" style="margin-top:12px;"></div>
+        </div>
+      </section>
+
       <section id="tab-character" class="tab-panel">
         <div class="panel">
           <div id="character-header" class="character-header"></div>
@@ -147,3 +178,13 @@
     <script src="/app.js"></script>
   </body>
   </html>
+
+
+
+
+
+
+
+
+
+

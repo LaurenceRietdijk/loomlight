@@ -38,19 +38,14 @@ This is a medieval fantasy world.
 Locale description: ${localeDescription}.
 Give the character an immersive backstory and clear personality traits.`;
 
-    const parsed = await gpt.chatJSON(
-      [
-        {
-          role: "system",
-          content:
-            "You are an AI that creates NPCs for a medieval fantasy game.\n" +
+    const parsed = await gpt.chatJSONPrompt(
+      "You are an AI that creates NPCs for a medieval fantasy game.\n" +
             "Your response must be valid JSON and contain no extra text.\n\n" +
             "The character format is:\n{\n  \"name\": \"Full Name\",\n  \"title\": \"Optional title\",\n  \"role\": \"Role in the building\",\n  \"description\": \"Short summary of appearance and background.\",\n  \"personality\": \"Brief temperament or habits.\",\n  \"race\": \"Fantasy race like Elf, Human, Dwarf, etc.\",\n  \"gender\": \"male\" | \"female\" | \"nonbinary\",\n  \"age\": Number\n}",
-        },
-        { role: "user", content: userPrompt },
-      ],
-      { model: "gpt-3.5-turbo", max_tokens: 400, temperature: 0.85 }
+      userPrompt,
+      { max_tokens: 400, temperature: 0.85 }
     );
+
 
     let raceName = parsed.race;
     if (locale.primary_race) {
@@ -128,17 +123,12 @@ Return your answer as a valid JSON array with no extra text. Use this format:
 
     let generatedList;
     try {
-      const content = await gpt.chatJSON(
-        [
-          {
-            role: "system",
-            content:
-              "You are an AI that creates immersive NPCs for medieval fantasy games. Only return valid JSON arrays.",
-          },
-          { role: "user", content: prompt },
-        ],
-        { model: "gpt-3.5-turbo", max_tokens: 600, temperature: 0.85 }
-      );
+      const content = await gpt.chatJSONPrompt(
+      "You are an AI that creates immersive NPCs for medieval fantasy games. Only return valid JSON arrays.",
+      prompt,
+      { max_tokens: 600, temperature: 0.85 }
+    );
+
       if (!Array.isArray(content)) throw new Error("GPT response is not an array");
       generatedList = content;
     } catch (err) {
@@ -273,17 +263,12 @@ Return ONLY a JSON array with the same length as skeletons.`;
 
     let fleshed;
     try {
-      const content = await gpt.chatJSON(
-        [
-          {
-            role: "system",
-            content:
-              "You generate NPC children for a medieval fantasy world. Output must be valid JSON array only.",
-          },
-          { role: "user", content: prompt },
-        ],
-        { model: "gpt-3.5-turbo", max_tokens: 500, temperature: 0.8 }
-      );
+      const content = await gpt.chatJSONPrompt(
+      "You generate NPC children for a medieval fantasy world. Output must be valid JSON array only.",
+      prompt,
+      { max_tokens: 500, temperature: 0.8 }
+    );
+
       fleshed = content;
     } catch (e) {
       fleshed = null;

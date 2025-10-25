@@ -41,3 +41,4 @@ static func fetch_all() -> Array[World]:
         var err_text: String = str(result.get("error", ""))
         print("[WorldDAL] ERROR ", code, ": ", err_text)
     return []
+
