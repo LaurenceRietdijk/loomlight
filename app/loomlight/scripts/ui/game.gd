@@ -3,6 +3,7 @@ extends Node2D
 @onready var map_view: Node2D = $MapView
 @onready var loading_screen: Control = $LoadingScreen
 @onready var locale_screen: Node2D = $LocaleScreen if has_node("LocaleScreen") else null
+@onready var locale_screen_ui: CanvasLayer = $LocaleScreenUI if has_node("LocaleScreenUI") else null
 @onready var dialogue_screen: Control = $DialogueScreen if has_node("DialogueScreen") else null
 
 var _current_screen: String = "loading" # one of: loading, map, locale, dialogue
@@ -20,6 +21,7 @@ func show_only_loading(text: String = "Loading...") -> void:
 		loading_screen.call("show_loading", text, 0.0)
 	if map_view: map_view.visible = false
 	if locale_screen: locale_screen.visible = false
+	if locale_screen_ui: locale_screen_ui.visible = false
 	if dialogue_screen: dialogue_screen.visible = false
 	visible = true
 
@@ -51,6 +53,8 @@ func show_locale(loc: Locale) -> void:
 		if locale_screen.has_method("show_locale"):
 			locale_screen.call("show_locale", loc)
 		locale_screen.visible = true
+	if locale_screen_ui:
+		locale_screen_ui.visible = true
 	_current_screen = "locale"
 
 func show_map() -> void:
@@ -62,6 +66,8 @@ func show_map() -> void:
 		if locale_screen.has_method("hide_locale"):
 			locale_screen.call("hide_locale")
 		locale_screen.visible = false
+	if locale_screen_ui:
+		locale_screen_ui.visible = false
 	if dialogue_screen:
 		dialogue_screen.visible = false
 	if map_view:

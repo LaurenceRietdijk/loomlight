@@ -6,190 +6,503 @@ extends Node2D
 @export var noise_scale: float = 1.0
 
 var current_locale: Variant = null
-@onready var terrain_layer: Node = (
-	$Terrain if has_node("Terrain")
-	else ($Terrains if has_node("Terrains") else null)
-)
+var _terrain_layer: Node = null
+var _terrain_tileset: TileSet = null
+var _terrain_pair_sources: Dictionary = {}
+var _terrain_index_texture_map: Dictionary = {}
+var _biome_terrain_ids: Array[String] = []
+@onready var _screen_buttons: Control = $ScreenButtons if has_node("ScreenButtons") else null
 
-# In-memory grid used for placement (Array[PackedInt32Array])
-var _grid: Array = []
-
-# Cache of source ids loaded for this screen
-var _source_ids: PackedInt32Array = PackedInt32Array()
+# Panning/scrolling config
+var pan_mouse_button: int = MOUSE_BUTTON_RIGHT
+var pan_active: bool = false
+var pan_last_mouse_pos: Vector2 = Vector2.ZERO
+var scroll_speed: float = 300.0  # pixels per second for keyboard scrolling
+var zoom_speed: float = 0.1
+var min_zoom: float = 0.5
+var max_zoom: float = 2.0
 
 func _ready() -> void:
-	print("[LocaleScreen] ready")
+	if has_node("Terrain"):
+		_terrain_layer = $Terrain
+	elif has_node("Terrains"):
+		_terrain_layer = $Terrains
+	if _terrain_layer != null:
+		_terrain_tileset = _terrain_layer.tile_set
+	if _screen_buttons != null:
+		_screen_buttons.top_level = true
+		_screen_buttons.z_index = 100
 	visible = false
+	set_process_unhandled_input(true)
 
-func show_locale(loc) -> void:
-	# Called by GameManager when switching to this screen.
+func _unhandled_input(event: InputEvent) -> void:
+	if not visible:
+		return
+		
+	if event is InputEventMouseButton:
+		var mbe := event as InputEventMouseButton
+		# Begin/end panning with right mouse or middle mouse
+		if mbe.button_index == pan_mouse_button or mbe.button_index == MOUSE_BUTTON_MIDDLE:
+			if mbe.pressed:
+				pan_active = true
+				pan_last_mouse_pos = mbe.position
+			else:
+				pan_active = false
+		# Mouse wheel for zooming
+		elif mbe.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_zoom_at_point(mbe.position, 1.0 + zoom_speed)
+		elif mbe.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_zoom_at_point(mbe.position, 1.0 - zoom_speed)
+
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		# If panning, move the view
+		if pan_active:
+			var delta := mm.position - pan_last_mouse_pos
+			position += delta
+			pan_last_mouse_pos = mm.position
+
+func _process(delta: float) -> void:
+	if not visible:
+		return
+	
+	# Keyboard scrolling
+	var move_dir := Vector2.ZERO
+	if Input.is_action_pressed("ui_left"):
+		move_dir.x -= 1
+	if Input.is_action_pressed("ui_right"):
+		move_dir.x += 1
+	if Input.is_action_pressed("ui_up"):
+		move_dir.y -= 1
+	if Input.is_action_pressed("ui_down"):
+		move_dir.y += 1
+	
+	if move_dir.length() > 0:
+		position += move_dir.normalized() * scroll_speed * delta
+
+func _zoom_at_point(point: Vector2, zoom_factor: float) -> void:
+	var new_scale := scale * zoom_factor
+	new_scale.x = clamp(new_scale.x, min_zoom, max_zoom)
+	new_scale.y = clamp(new_scale.y, min_zoom, max_zoom)
+	
+	if new_scale == scale:
+		return
+	
+	# Zoom towards mouse position
+	var old_scale := scale
+	scale = new_scale
+	
+	# Adjust position to keep the point under cursor stationary
+	var scale_ratio := new_scale / old_scale
+	var offset := point - position
+	position = point - offset * scale_ratio
+
+func show_locale(loc: Locale) -> void:
 	current_locale = loc
+	if _terrain_layer == null or _terrain_tileset == null:
+		print("[LocaleScreen] show_locale abort: missing terrain layer or tileset")
+		return
+
+	var loc_id := "" if loc == null else str(loc.id)
+	print("[LocaleScreen] show_locale begin locale_id=", loc_id)
+
+	_clear_tileset_sources()
+	_terrain_index_texture_map = {}
+
+	var world: World = null
+	if Engine.has_singleton("GameManager"):
+		world = GameManager.current_world
+	if world == null:
+		var gm_node := get_tree().root.get_node_or_null("GameManager")
+		if gm_node != null:
+			world = gm_node.get("current_world") as World
+
+	var biome: Biome = null
+	if loc != null:
+		biome = loc.get_biome()
+	if biome == null and world != null:
+		var bid := (loc.get_biome_id() if loc != null else "")
+		if bid != "":
+			biome = world.get_biome_by_id(bid)
+	if biome == null:
+		print("[LocaleScreen] show_locale abort: missing biome for locale", loc_id)
+		return
+
+	_biome_terrain_ids = biome.terrain_ids()
+	print("[LocaleScreen] biome terrain ids=", _biome_terrain_ids)
+
+	_terrain_pair_sources = {}
+	if world != null:
+		var pair_map := world.get_cached_tileset_pairs_for_locale(loc)
+		print("[LocaleScreen] cached pair_map size=", pair_map.size(), " keys=", pair_map.keys())
+		for pair_key in pair_map.keys():
+			var tsid := str(pair_map[pair_key])
+			if tsid == "":
+				print("[LocaleScreen]   skipping empty tsid for pair", pair_key)
+				continue
+			var sid := await _ensure_tileset_source(tsid)
+			if sid >= 0:
+				_terrain_pair_sources[pair_key] = sid
+				_record_terrain_index_mapping(pair_key, tsid, sid)
+			else:
+				print("[LocaleScreen]   failed to ensure tileset source for tsid=", tsid)
+
+	print("[LocaleScreen] terrain pair sources size=", _terrain_pair_sources.size(), " keys=", _terrain_pair_sources.keys())
+	_print_terrain_index_texture_map_log()
+
+	var terrain_count: int = max(1, int(_biome_terrain_ids.size()))
+	var size := Vector2i(width_tiles, height_tiles)
+	var offset := Vector2.ZERO
+	if loc != null:
+		offset = Vector2(loc.coordinates.x, loc.coordinates.y)
+	print("[LocaleScreen] generating terrain map size=", size, " terrain_count=", terrain_count, " offset=", offset)
+	var grid := _generate_terrain_index_map(size, terrain_count, offset)
+	print("[LocaleScreen] terrain map generated; height=", grid.size())
+	_apply_terrain_map(grid)
+	# TEMP: visualize all atlas coordinates per source instead of generating noise-based terrain.
+	#_debug_render_tileset_sources_preview()
+
 	visible = true
-	await _prepare_tileset_for_locale()
-	await _generate_and_place_map()
+	if _terrain_layer.has_method("queue_redraw"):
+		_terrain_layer.queue_redraw()
 
 func hide_locale() -> void:
 	visible = false
 
-func generateWorld(w: int = -1, h: int = -1, s: float = -1.0) -> void:
-	# Backwards-compatible entry point
-	generate_world(w, h, s)
-
-func generate_world(w: int = -1, h: int = -1, s: float = -1.0) -> void:
-	# Manual trigger that bypasses show flow; prepares tileset and places tiles
-	await _prepare_tileset_for_locale()
-	await _generate_and_place_map(w, h, s)
-
-func _resolve_terrain_layer() -> Node:
-	if terrain_layer != null:
-		return terrain_layer
-	if has_node("Terrain"):
-		terrain_layer = $Terrain
-	elif has_node("Terrains"):
-		terrain_layer = $Terrains
-	return terrain_layer
-
-func _get_existing_tileset(layer: Node) -> TileSet:
-	var ts: TileSet = null
-	if layer == null:
-		return null
-	if layer.has_method("get"):
-		ts = layer.get("tile_set") as TileSet
-	else:
-		ts = layer.tile_set
-	return ts
-
-func _clear_tileset_sources(ts: TileSet) -> void:
-	if ts == null:
+func _clear_tileset_sources() -> void:
+	if _terrain_tileset == null:
 		return
-	var count := ts.get_source_count()
+	var count := _terrain_tileset.get_source_count()
 	if count == 0:
+		print("[LocaleScreen] _clear_tileset_sources none to remove")
 		return
 	var ids: Array = []
 	for i in range(count):
-		ids.append(ts.get_source_id(i))
+		ids.append(_terrain_tileset.get_source_id(i))
+	print("[LocaleScreen] _clear_tileset_sources removing ids=", ids)
 	for sid in ids:
-		ts.remove_source(int(sid))
+		_terrain_tileset.remove_source(int(sid))
 
-# Note: Intentionally avoid changing any TileMap/TileSet configuration here.
+func _ensure_tileset_source(tsid: String) -> int:
+	if tsid == "":
+		return -1
+	if _terrain_layer == null or _terrain_tileset == null:
+		return -1
 
-func _load_locale_textures_into_tileset(ts: TileSet) -> PackedInt32Array:
-	var out := PackedInt32Array()
-	if ts == null:
-		return out
-	# Expect GameManager to have cached needed tilesets under this dir
-	var dir_path := "user://cache/terrain_tilesets"
-	var da := DirAccess.open("user://")
-	if da == null:
-		return out
-	if not DirAccess.dir_exists_absolute(dir_path):
-		return out
-	var sub := DirAccess.open(dir_path)
-	if sub == null:
-		return out
-	sub.list_dir_begin()
-	while true:
-		var fn := sub.get_next()
-		if fn == "":
-			break
-		if sub.current_is_dir():
-			continue
-		if not fn.to_lower().ends_with(".png"):
-			continue
-		var full := dir_path.rstrip("/") + "/" + fn
-		var img := Image.new()
-		var err := img.load(full)
-		if err != OK:
-			print("[LocaleScreen][Tileset] Failed to load image:", full)
-			continue
-		var tex := ImageTexture.create_from_image(img)
-		var src := TileSetAtlasSource.new()
-		src.texture = tex
-		src.texture_region_size = Vector2i(img.get_width(), img.get_height())
-		var c0 := Vector2i(0, 0)
-		if not src.has_tile(c0):
-			src.create_tile(c0)
-		var sid := ts.get_next_source_id()
-		ts.add_source(src, sid)
-		out.append(sid)
-		report_texture_loaded(fn, sid)
-	sub.list_dir_end()
-	return out
+	var existing := _terrain_tileset.get_source_count()
+	for i in range(existing):
+		var sid_i := _terrain_tileset.get_source_id(i)
+		var existing_src := _terrain_tileset.get_source(sid_i)
+		if existing_src is TileSetAtlasSource and existing_src.resource_name == tsid:
+			_populate_tileset_atlas(existing_src)
+			print("[LocaleScreen] _ensure_tileset_source reuse sid=", sid_i, " for tsid=", tsid)
+			return int(sid_i)
 
-func report_texture_loaded(name: String, sid: int) -> void:
-	print("[LocaleScreen][Tileset] Added atlas source:", name, " sid=", sid)
+	var path := "user://cache/terrain_tilesets/%s.png" % tsid
+	if not FileAccess.file_exists(path):
+		print("[LocaleScreen] _ensure_tileset_source missing file path=", path, ", attempting download...")
+		var downloaded := await _download_tileset_image(tsid)
+		if not downloaded:
+			print("[LocaleScreen] _ensure_tileset_source failed to download tsid=", tsid)
+			return -1
 
-func _prepare_tileset_for_locale() -> void:
-	var layer := _resolve_terrain_layer()
-	if layer == null:
-		print("[LocaleScreen] No Terrain layer; abort prepare")
+	var img := Image.new()
+	if img.load(path) != OK:
+		print("[LocaleScreen] _ensure_tileset_source failed image load path=", path)
+		return -1
+
+	var tex := ImageTexture.create_from_image(img)
+	if tex == null:
+		print("[LocaleScreen] _ensure_tileset_source failed to create texture tsid=", tsid)
+		return -1
+
+	var src := TileSetAtlasSource.new()
+	src.texture = tex
+	src.resource_name = tsid
+	# Use the TileSet's configured tile size for isometric layout
+	src.texture_region_size = _terrain_tileset.tile_size
+	var base := Vector2i(0, 0)
+	_populate_tileset_atlas(src)
+
+	var sid := _terrain_tileset.get_next_source_id()
+	_terrain_tileset.add_source(src, sid)
+	if _terrain_layer.has_method("queue_redraw"):
+		_terrain_layer.queue_redraw()
+	print("[LocaleScreen] _ensure_tileset_source added sid=", sid, " for tsid=", tsid, " size=", src.texture_region_size)
+	return int(sid)
+
+func _populate_tileset_atlas(src: TileSetAtlasSource) -> void:
+	if src == null:
 		return
-	var tileset := _get_existing_tileset(layer)
-	if tileset == null:
-		print("[LocaleScreen] Terrain layer has no TileSet; please assign one in the editor")
+	var atlas_tile_size := src.texture_region_size
+	if _terrain_tileset != null and _terrain_tileset.tile_size.x > 0 and _terrain_tileset.tile_size.y > 0:
+		atlas_tile_size = _terrain_tileset.tile_size
+	if src.texture_region_size != atlas_tile_size:
+		src.texture_region_size = atlas_tile_size
+	if atlas_tile_size.x <= 0 or atlas_tile_size.y <= 0:
 		return
-	# Remove anything from the atlas if it is already populated
-	_clear_tileset_sources(tileset)
-	# Load textures needed for this locale into the atlas (cached by GameManager)
-	_source_ids = _load_locale_textures_into_tileset(tileset)
-	# Reassign to ensure runtime changes are picked up
-	if layer.has_method("set"):
-		layer.set("tile_set", tileset)
+	var tex := src.texture
+	if tex == null:
+		return
+	var width := tex.get_width()
+	var height := tex.get_height()
+	if width <= 0 or height <= 0:
+		return
+	var cols := int(max(1.0, float(width) / float(atlas_tile_size.x)))
+	var rows := int(max(1.0, float(height) / float(atlas_tile_size.y)))
+	for y in range(rows):
+		for x in range(cols):
+			var coord := Vector2i(x, y)
+			if not src.has_tile(coord):
+				src.create_tile(coord)
+
+func _record_terrain_index_mapping(pair_key: Variant, tsid: String, sid: int) -> void:
+	var indices: PackedInt32Array = PackedInt32Array()
+	if pair_key is PackedInt32Array:
+		indices = pair_key
+	elif pair_key is Array:
+		indices.resize(pair_key.size())
+		for i in range(pair_key.size()):
+			indices[i] = int(pair_key[i])
 	else:
-		layer.tile_set = tileset
+		return
+	if indices.size() > 0:
+		_terrain_index_texture_map[int(indices[0])] = {
+			"tsid": tsid,
+			"sid": sid,
+			"atlas_coord": Vector2i(0, 0),
+			"pair_indices": PackedInt32Array(indices),
+		}
+	if indices.size() > 1:
+		_terrain_index_texture_map[int(indices[1])] = {
+			"tsid": tsid,
+			"sid": sid,
+			"atlas_coord": Vector2i(1, 0),
+			"pair_indices": PackedInt32Array(indices),
+		}
 
-func _generate_map_grid(W: int, H: int, bins: int, S: float) -> Array:
-	var noise_src: Noise = null
-	if noise_height_texture != null:
-		noise_src = noise_height_texture.noise
+func _print_terrain_index_texture_map_log() -> void:
+	var keys := _terrain_index_texture_map.keys()
+	if keys.size() == 0:
+		print("[LocaleScreen] terrain index texture map empty")
+		return
+	keys.sort()
+	print("[LocaleScreen] terrain index texture map entries=", keys.size())
+	for idx in keys:
+		var info: Dictionary = _terrain_index_texture_map[idx]
+		var tsid := str(info.get("tsid", ""))
+		var sid := int(info.get("sid", -1))
+		var atlas_coord: Variant = info.get("atlas_coord", Vector2i.ZERO)
+		var pair_indices: Variant = info.get("pair_indices", PackedInt32Array())
+		print("[LocaleScreen]   terrain_idx=", idx, " tsid=", tsid, " sid=", sid, " atlas_coord=", atlas_coord, " pair_indices=", pair_indices)
+
+func _generate_terrain_index_map(size: Vector2i, terrain_count: int, offset: Vector2) -> Array:
+	var width: int = max(1, int(size.x))
+	var height: int = max(1, int(size.y))
+	var bins: int = max(1, int(terrain_count))
+	var out: Array = []
+	out.resize(height)
+
+	var noise_src: Noise = noise_height_texture.noise if noise_height_texture != null else null
 	if noise_src == null:
 		noise_src = FastNoiseLite.new()
-	_grid = []
-	_grid.resize(H)
-	for y in H:
+
+	var thresholds: Array = []
+	print("[LocaleScreen] _generate_terrain_index_map bins=", bins)
+	for i in range(bins - 1):
+		thresholds.append(float(i + 1) / float(bins))
+	print("[LocaleScreen] _generate_terrain_index_map thresholds=", thresholds)
+
+	for y in range(height):
 		var row := PackedInt32Array()
-		row.resize(W)
-		for x in W:
-			var n := 0.0
+		row.resize(width)
+		for x in range(width):
+			var sample_x := (float(x) + offset.x) * noise_scale
+			var sample_y := (float(y) + offset.y) * noise_scale
+			var n: float = 0.0
 			if noise_src is FastNoiseLite:
-				n = (noise_src as FastNoiseLite).get_noise_2d(float(x) * S, float(y) * S)
+				n = (noise_src as FastNoiseLite).get_noise_2d(sample_x, sample_y)
 			else:
-				n = noise_src.get_noise_2d(float(x) * S, float(y) * S)
-			var n01: float = clamp(n + 0.5, 0.0, 1.0)
-			var idx: int = int(floor(n01 * float(max(1, bins))))
-			if bins > 0:
-				idx = clamp(idx, 0, bins - 1)
-			row[x] = idx
-		_grid[y] = row
-	return _grid
-
-func _place_tiles_from_grid(layer: Node, grid: Array, sids: PackedInt32Array) -> void:
-	if layer == null:
-		return
-	if layer.has_method("clear"):
-		layer.clear()
-	var H := grid.size()
-	var W := (grid[0] as PackedInt32Array).size() if H > 0 else 0
-	var bins := int(max(1, sids.size()))
-	for y in H:
-		for x in W:
-			var idx: int = int((grid[y] as PackedInt32Array)[x])
+				n = noise_src.get_noise_2d(sample_x, sample_y)
+			var n01: float = clamp((n + 1.0) * 0.5, 0.0, 1.0)
+			var idx := 0
+			for t in thresholds:
+				if n01 < t:
+					break
+				idx += 1
 			idx = clamp(idx, 0, bins - 1)
-			var sid := int(sids[idx] if sids.size() > 0 else 0)
-			layer.set_cell(Vector2i(x, y), sid, Vector2i(0, 0), 0)
-	if layer.has_method("queue_redraw"):
-		layer.queue_redraw()
+			row[x] = idx
+		out[y] = row
+		#print("[LocaleScreen]   row", y, " data=", row)
+	var counts := {}
+	for y in range(height):
+		var rowy: PackedInt32Array = out[y]
+		for x in range(rowy.size()):
+			var val := int(rowy[x])
+			counts[val] = counts.get(val, 0) + 1
+	print("[LocaleScreen] _generate_terrain_index_map counts=", counts)
+	return out
 
-func _generate_and_place_map(w: int = -1, h: int = -1, s: float = -1.0) -> void:
-	var layer := _resolve_terrain_layer()
-	if layer == null:
+func _apply_terrain_map(grid: Array) -> void:
+	if _terrain_layer == null or _terrain_tileset == null:
+		print("[LocaleScreen] _apply_terrain_map abort: missing layer or tileset")
 		return
-	if _source_ids.size() == 0:
-		print("[LocaleScreen] No atlas sources loaded; skipping tile placement")
+	if not _terrain_layer.has_method("set_cell"):
+		print("[LocaleScreen] _apply_terrain_map abort: layer lacks set_cell")
 		return
-	var W := (width_tiles if w == -1 else w)
-	var H := (height_tiles if h == -1 else h)
-	var S := (noise_scale if s < 0.0 else s)
-	var bins := int(max(1, _source_ids.size()))
-	var grid := _generate_map_grid(W, H, bins, S)
-	_place_tiles_from_grid(layer, grid, _source_ids)
+
+	var height := grid.size()
+	var pair_keys := _terrain_pair_sources.keys()
+	print("[LocaleScreen] _apply_terrain_map start height=", height, " pair_keys=", pair_keys)
+	var placed := 0
+	var skipped := 0
+	var terrain_sid_counts := {}
+	for y in range(height):
+		var row = grid[y]
+		if row == null:
+			print("[LocaleScreen]   skipped null row y=", y)
+			continue
+		var packed_row: PackedInt32Array = row if row is PackedInt32Array else PackedInt32Array(row)
+		var width := packed_row.size()
+		for x in range(width):
+			var terrain_idx := int(packed_row[x])
+			var sid := -1
+			var atlas_coord := Vector2i.ZERO
+			for pair in _terrain_pair_sources.keys():
+				var pair_indices: PackedInt32Array = pair
+				if pair_indices.size() != 2:
+					continue
+				var first_idx := int(pair_indices[0])
+				var second_idx := int(pair_indices[1])
+				if first_idx == terrain_idx:
+					sid = int(_terrain_pair_sources[pair])
+					atlas_coord = Vector2i(0, 0)
+					break
+				if second_idx == terrain_idx:
+					sid = int(_terrain_pair_sources[pair])
+					atlas_coord = Vector2i(1, 0)
+					break
+			if sid < 0:
+				skipped += 1
+				if skipped < 10:
+					print("[LocaleScreen]   no source for terrain_idx=", terrain_idx, " at (", x, ",", y, ")")
+				continue
+			_terrain_layer.set_cell(Vector2i(x, y), sid, atlas_coord, 0)
+			print("[LocaleScreen]   placed terrain_idx=", terrain_idx, " sid=", sid, " atlas_coord=", atlas_coord, " at (", x, ",", y, ")")
+			placed += 1
+			var key := "%s:%s,%s" % [sid, atlas_coord.x, atlas_coord.y]
+			terrain_sid_counts[key] = terrain_sid_counts.get(key, 0) + 1
+	if _terrain_layer.has_method("queue_redraw"):
+		_terrain_layer.queue_redraw()
+	print("[LocaleScreen] _apply_terrain_map end placed=", placed, " skipped=", skipped, " sid_counts=", terrain_sid_counts)
+
+func _debug_render_tileset_sources_preview() -> void:
+	if _terrain_layer == null or _terrain_tileset == null:
+		print("[LocaleScreen] _debug_render_tileset_sources_preview abort: missing layer or tileset")
+		return
+	if not _terrain_layer.has_method("set_cell"):
+		print("[LocaleScreen] _debug_render_tileset_sources_preview abort: layer lacks set_cell")
+		return
+	if _terrain_layer.has_method("clear"):
+		_terrain_layer.clear()
+
+	var max_columns := 16
+	var current_row := 0
+	var source_count := _terrain_tileset.get_source_count()
+	print("[LocaleScreen] _debug_render_tileset_sources_preview start source_count=", source_count)
+	for i in range(source_count):
+		var sid := _terrain_tileset.get_source_id(i)
+		var src := _terrain_tileset.get_source(sid)
+		if not (src is TileSetAtlasSource):
+			print("[LocaleScreen]   skipping non-atlas source sid=", sid)
+			continue
+		var coords := _collect_sorted_atlas_coords(src)
+		print("[LocaleScreen]   sid=", sid, " coord_count=", coords.size())
+		var coord_count := coords.size()
+		for idx in range(coord_count):
+			var coord: Vector2i = coords[idx]
+			var col := idx % max_columns
+			var row_offset := int(idx / max_columns)
+			var map_pos := Vector2i(col, current_row + row_offset)
+			_terrain_layer.set_cell(map_pos, sid, coord, 0)
+		var rows_used := 1 if coord_count == 0 else int((coord_count + max_columns - 1) / max_columns)
+		current_row += rows_used
+	if _terrain_layer.has_method("queue_redraw"):
+		_terrain_layer.queue_redraw()
+	print("[LocaleScreen] _debug_render_tileset_sources_preview end rows_used=", current_row)
+
+func _collect_sorted_atlas_coords(src: TileSetAtlasSource) -> Array:
+	var coords: Array = []
+	if src == null:
+		return coords
+	var atlas_tile_size := src.texture_region_size
+	if atlas_tile_size.x <= 0 or atlas_tile_size.y <= 0:
+		return coords
+	var tex := src.texture
+	if tex == null:
+		return coords
+	var width := tex.get_width()
+	var height := tex.get_height()
+	if width <= 0 or height <= 0:
+		return coords
+
+	var cols := int(max(1.0, float(width) / float(atlas_tile_size.x)))
+	var rows := int(max(1.0, float(height) / float(atlas_tile_size.y)))
+	for ay in range(rows):
+		for ax in range(cols):
+			var coord := Vector2i(ax, ay)
+			if src.has_tile(coord):
+				coords.append(coord)
+	return coords
+
+func _download_tileset_image(tsid: String) -> bool:
+	var world: World = null
+	if Engine.has_singleton("GameManager"):
+		world = GameManager.current_world
+	if world == null:
+		var gm_node := get_tree().root.get_node_or_null("GameManager")
+		if gm_node != null:
+			world = gm_node.get("current_world") as World
+	
+	if world == null:
+		print("[LocaleScreen] _download_tileset_image abort: no world")
+		return false
+	
+	var meta := world.get_tileset_meta(tsid)
+	if meta.size() == 0:
+		print("[LocaleScreen] _download_tileset_image abort: no metadata for tsid=", tsid)
+		return false
+	
+	var remote_path: String = str(meta.get("remote_path", ""))
+	if remote_path == "":
+		print("[LocaleScreen] _download_tileset_image abort: no remote_path for tsid=", tsid)
+		return false
+	
+	var api_node := get_tree().root.get_node_or_null("ApiClient")
+	if api_node == null:
+		print("[LocaleScreen] _download_tileset_image abort: no ApiClient")
+		return false
+	
+	print("[LocaleScreen] _download_tileset_image downloading from ", remote_path)
+	var bytes: PackedByteArray = await api_node.get_bytes(remote_path)
+	if bytes.size() == 0:
+		print("[LocaleScreen] _download_tileset_image abort: empty response for ", remote_path)
+		return false
+	
+	var cache_dir := "user://cache/terrain_tilesets"
+	if not DirAccess.dir_exists_absolute(cache_dir):
+		var err := DirAccess.make_dir_recursive_absolute(cache_dir)
+		if err != OK:
+			print("[LocaleScreen] _download_tileset_image failed to create directory ", cache_dir)
+			return false
+	
+	var path := "%s/%s.png" % [cache_dir, tsid]
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		print("[LocaleScreen] _download_tileset_image failed to open file for writing: ", path)
+		return false
+	
+	file.store_buffer(bytes)
+	file.close()
+	print("[LocaleScreen] _download_tileset_image saved to ", path, " (", bytes.size(), " bytes)")
+	return true

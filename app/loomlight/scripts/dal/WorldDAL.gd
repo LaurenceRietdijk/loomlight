@@ -13,14 +13,11 @@ static func _api() -> Node:
     return null
 
 static func fetch_all() -> Array[World]:
-    print("[WorldDAL] GET ", PATH_ALL)
     var api := _api()
     if api == null:
-        print("[WorldDAL] ERROR: ApiClient autoload not found")
         return []
     var result: Dictionary = await api.get_json(PATH_ALL)
     var ok: bool = bool(result.get("ok", false))
-    var code: int = int(result.get("code", -1))
     if ok:
         var data = result.get("data")
         var list: Array = []
@@ -29,16 +26,11 @@ static func fetch_all() -> Array[World]:
         elif data is Dictionary and data.has("worlds") and data.worlds is Array:
             list = data.worlds
         else:
-            print("[WorldDAL] Unexpected data shape: ", data)
             return []
 
         var worlds: Array[World] = []
         for w in list:
             worlds.append(WORLD.new(w))
-        print("[WorldDAL] OK ", code, ", count=", worlds.size())
         return worlds
-    else:
-        var err_text: String = str(result.get("error", ""))
-        print("[WorldDAL] ERROR ", code, ": ", err_text)
     return []
 

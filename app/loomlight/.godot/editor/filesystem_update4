@@ -1,3 +1,4 @@
 res://scenes/game.tscn
 res://scenes/locale_screen.gd
 res://autoload/GameManager.gd
+res://scripts/ui/map_view.gd

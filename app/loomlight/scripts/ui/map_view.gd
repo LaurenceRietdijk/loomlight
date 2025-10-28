@@ -4,6 +4,7 @@ signal tile_selected(cell: Vector2i)
 
 @onready var world_map: Node2D = $WorldMap if has_node("WorldMap") else null
 @onready var overlay: Node2D = $SelectionOverlay if has_node("SelectionOverlay") else null
+@onready var screen_buttons: Control = $ScreenButtons if has_node("ScreenButtons") else null
 
 # Panning config
 var pan_mouse_button: int = MOUSE_BUTTON_RIGHT
@@ -18,6 +19,9 @@ func _ready() -> void:
 	visible = false
 	set_process_unhandled_input(true)
 	# Overlay is added in the scene as a child (SelectionOverlay)
+	if screen_buttons != null:
+		screen_buttons.top_level = true
+		screen_buttons.z_index = 100
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:

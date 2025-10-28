@@ -44,7 +44,6 @@ func _on_play_pressed() -> void:
 	var world: World = _worlds[w_idx]
 	var character: PlayerCharacter = _characters[c_idx]
 	GameManager.load_world(character, world)
-	print("Selected world:", world.name, "character:", character.name)
 	# TODO: change to gameplay scene when available
 
 func _load_worlds() -> void:

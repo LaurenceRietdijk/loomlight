@@ -12,7 +12,6 @@ static func _api() -> Node:
 static func fetch_one(world_id: String, character_id: String, full: bool = false):
     var api := _api()
     if api == null:
-        print("[NpcCharacterDAL] ERROR: ApiClient autoload not found")
         return null
     var path := "/character/full" if full else "/character"
     var qs := "world_id=%s&character_id=%s" % [world_id, character_id]
@@ -23,9 +22,6 @@ static func fetch_one(world_id: String, character_id: String, full: bool = false
         var raw = (data.character if (data is Dictionary and data.has("character")) else data)
         if raw != null:
             return Character.new(raw)
-    else:
-        var err_text: String = str(result.get("error", ""))
-        print("[NpcCharacterDAL] ERROR: ", err_text)
     return null
 
 static func fetch_many(world_id: String, ids: Array, full: bool = false) -> Dictionary:

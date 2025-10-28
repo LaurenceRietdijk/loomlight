@@ -1,10 +1,12 @@
 class_name World
 extends Resource
 
-const LOCALE_DAL = preload("res://scripts/dal/LocaleDAL.gd")
-const QUEST_DAL = preload("res://scripts/dal/QuestDAL.gd")
-const NPC_CHARACTER_DAL = preload("res://scripts/dal/NpcCharacterDAL.gd")
-const BIOME_DAL = preload("res://scripts/dal/BiomeDAL.gd")
+var LOCALE_DAL = load("res://scripts/dal/LocaleDAL.gd")
+var QUEST_DAL = load("res://scripts/dal/QuestDAL.gd")
+var NPC_CHARACTER_DAL = load("res://scripts/dal/NpcCharacterDAL.gd")
+var BIOME_DAL = load("res://scripts/dal/BiomeDAL.gd")
+var TERRAIN_DAL = load("res://scripts/dal/TerrainDAL.gd")
+var TILESET_DAL = load("res://scripts/dal/TilesetDAL.gd")
 
 var id: String = ""
 var name: String = "Unnamed World"
@@ -28,6 +30,11 @@ var active_player_characters: Dictionary = {}
 # Optional cached associations (client-side)
 var player_characters: Array = [] # Array[PlayerCharacter]
 var biomes: Array[Biome] = [] # global biomes
+var _biomes_by_id: Dictionary = {}
+var _terrain_docs_by_id: Dictionary = {}
+var _tileset_docs_by_id: Dictionary = {} # raw DAL docs (Dictionary)
+var _tileset_meta_by_id: Dictionary = {} # normalized meta { remote_path, local_path, lowerTerrainId, upperTerrainId }
+var _tileset_pairs_by_biome: Dictionary = {}
 
 func _init(data: Dictionary = {}):
     if data.has("_id"): id = str(data._id)
@@ -53,7 +60,6 @@ func to_dict() -> Dictionary:
 func init_collections(world_id: String = "") -> void:
     var wid := world_id if world_id != "" else (db_world_id if db_world_id != "" else id)
     if wid == "":
-        print("[World] init_collections skipped: missing world id")
         return
     var list: Array[Locale] = await LOCALE_DAL.fetch_list(wid)
     locales.clear()
@@ -65,6 +71,144 @@ func init_collections(world_id: String = "") -> void:
 
 func get_locale(locale_id: String) -> Locale:
     return locales.get(str(locale_id), null)
+
+func set_biomes(list: Array[Biome]) -> void:
+    biomes = []
+    _biomes_by_id.clear()
+    for b in list:
+        if b is Biome and str(b.id) != "":
+            var bid := str(b.id)
+            _biomes_by_id[bid] = b
+            biomes.append(b)
+
+func cache_biome(biome: Biome) -> void:
+    if biome == null:
+        return
+    var bid := str(biome.id)
+    if bid == "":
+        return
+    _biomes_by_id[bid] = biome
+    var found := false
+    for i in range(biomes.size()):
+        var existing: Biome = biomes[i]
+        if existing != null and str(existing.id) == bid:
+            biomes[i] = biome
+            found = true
+            break
+    if not found:
+        biomes.append(biome)
+
+func get_biome_by_id(biome_id: String) -> Biome:
+    return _biomes_by_id.get(str(biome_id), null)
+
+func ensure_biome_loaded(biome_id: String) -> Biome:
+    var bid := str(biome_id)
+    if bid == "":
+        return null
+    if _biomes_by_id.has(bid):
+        return _biomes_by_id[bid]
+    var fetched: Biome = await BIOME_DAL.fetch_by_id(bid)
+    if fetched != null:
+        cache_biome(fetched)
+    return fetched
+
+func cache_terrain_doc(doc: Dictionary) -> void:
+    if doc == null or doc.size() == 0:
+        return
+    var tid := str(doc.get("_id", doc.get("id", "")))
+    if tid == "":
+        return
+    _terrain_docs_by_id[tid] = doc
+
+func get_terrain_doc(tid: String) -> Dictionary:
+    return _terrain_docs_by_id.get(str(tid), {})
+
+func ensure_terrain_doc(tid: String) -> Dictionary:
+    var key := str(tid)
+    if key == "":
+        return {}
+    if _terrain_docs_by_id.has(key):
+        return _terrain_docs_by_id[key]
+    var doc: Dictionary = await TERRAIN_DAL.fetch_by_id(key)
+    if doc != null and doc.size() > 0:
+        _terrain_docs_by_id[key] = doc
+    return doc
+
+func cache_tileset_doc(tsid: String, doc: Dictionary) -> void:
+    var key := str(tsid)
+    if key == "":
+        return
+    if doc != null:
+        _tileset_docs_by_id[key] = doc
+
+func get_tileset_doc(tsid: String) -> Dictionary:
+    return _tileset_docs_by_id.get(str(tsid), {})
+
+func ensure_tileset_doc(tsid: String) -> Dictionary:
+    var key := str(tsid)
+    if key == "":
+        return {}
+    if _tileset_docs_by_id.has(key):
+        return _tileset_docs_by_id[key]
+    var doc: Dictionary = await TILESET_DAL.fetch_by_id(key)
+    if doc != null and doc.size() > 0:
+        _tileset_docs_by_id[key] = doc
+    return doc
+
+func cache_tileset_meta(tsid: String, meta: Dictionary) -> void:
+    var key := str(tsid)
+    if key == "":
+        return
+    _tileset_meta_by_id[key] = meta.duplicate(true)
+
+func get_tileset_meta(tsid: String) -> Dictionary:
+    return _tileset_meta_by_id.get(str(tsid), {})
+
+func cache_tileset_pairs(biome_id: String, pairs: Dictionary) -> void:
+    var key := str(biome_id)
+    if key == "" or pairs == null:
+        return
+    _tileset_pairs_by_biome[key] = pairs.duplicate(true)
+
+func get_tileset_pairs_for_biome(biome_id: String) -> Dictionary:
+    var biome := await ensure_biome_loaded(biome_id)
+    if biome == null:
+        return {}
+    var pairs := await biome.get_tileset_pairs(self)
+    cache_tileset_pairs(biome_id, pairs)
+    return pairs
+
+func get_tileset_pairs_for_locale(loc: Locale) -> Dictionary:
+    if loc == null:
+        return {}
+    var bid := loc.get_biome_id() if loc.has_method("get_biome_id") else str(loc.biome)
+    if bid == "":
+        return {}
+    return await get_tileset_pairs_for_biome(bid)
+
+func get_cached_tileset_pairs_for_biome(biome_id: String) -> Dictionary:
+    var key := str(biome_id)
+    if key != "" and _tileset_pairs_by_biome.has(key):
+        var val: Dictionary = _tileset_pairs_by_biome[key]
+        if val is Dictionary:
+            var stored: Dictionary = val
+            return stored.duplicate(true)
+    var biome := get_biome_by_id(biome_id)
+    if biome == null:
+        return {}
+    var cached := biome.get_cached_tileset_pairs()
+    if cached.size() > 0:
+        cache_tileset_pairs(biome_id, cached)
+    return cached
+
+func get_cached_tileset_pairs_for_locale(loc: Locale) -> Dictionary:
+    if loc == null:
+        return {}
+    var bid := loc.get_biome_id() if loc.has_method("get_biome_id") else str(loc.biome)
+    if bid == "":
+        return {}
+    var cached := get_cached_tileset_pairs_for_biome(bid)
+    return cached
 
 # Ensure quests are present in cache; fetch missing by id via DAL
 func ensure_quests(ids: Array) -> Dictionary:
@@ -100,12 +244,24 @@ func ensure_locale(locale_id: String) -> Locale:
     if locales.has(lid):
         var loc: Locale = locales[lid]
         if loc != null and loc._loaded_full:
+            if loc.biome_ref == null:
+                var bid := loc.get_biome_id()
+                if bid != "":
+                    loc.biome_ref = await ensure_biome_loaded(bid)
             return loc
         await loc.ensure_loaded(db_world_id)
+        if loc.biome_ref == null:
+            var bid2 := loc.get_biome_id()
+            if bid2 != "":
+                loc.biome_ref = await ensure_biome_loaded(bid2)
         await _ingest_locale(loc)
         return loc
     var fetched: Locale = await LOCALE_DAL.fetch_by_id((db_world_id if db_world_id != "" else id), lid)
     if fetched != null:
+        fetched._loaded_full = true
+        var bid3 := fetched.get_biome_id()
+        if bid3 != "":
+            fetched.biome_ref = await ensure_biome_loaded(bid3)
         locales[fetched.id] = fetched
         await _ingest_locale(fetched)
     return fetched
@@ -144,4 +300,5 @@ func _ingest_locale(loc: Locale) -> void:
             var ch = fetched_chars[key]
             if ch is Character and ch.id != "":
                 characters[ch.id] = ch
+
 

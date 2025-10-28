@@ -13,11 +13,9 @@ static func _api() -> Node:
 static func fetch_one(world_id: String, quest_id: String) -> Quest:
     var api := _api()
     if api == null:
-        print("[QuestDAL] ERROR: ApiClient autoload not found")
         return null
     var params := "world_id=%s&quest_id=%s" % [world_id, quest_id]
     var path := "/quest/full?" + params
-    print("[QuestDAL] GET ", path)
     var result: Dictionary = await api.get_json(path)
     var ok: bool = bool(result.get("ok", false))
     var code: int = int(result.get("code", -1))
@@ -29,11 +27,7 @@ static func fetch_one(world_id: String, quest_id: String) -> Quest:
         elif data is Dictionary:
             doc = data
         if doc != null:
-            print("[QuestDAL] OK ", code)
             return Quest.from_dict(doc)
-    else:
-        var err_text: String = str(result.get("error", ""))
-        print("[QuestDAL] ERROR ", code, ": ", err_text)
     return null
 
 ## Fetch many quests by ids; returns Dictionary id -> Quest

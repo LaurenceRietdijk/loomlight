@@ -11,6 +11,7 @@ var coordinates := Vector2.ZERO
 
 var primary_race: Variant = null
 var biome: String = ""
+var biome_ref: Biome = null
 var factions: Array = []
 var characters: Array = [] # lightweight refs: { _id, building?, role? }
 var buildings: Array[Building] = []
@@ -36,6 +37,9 @@ func _init(data: Dictionary = {}):
         var b = data.biome
         if b is Dictionary:
             biome = str(b.get("_id", b.get("id", "")))
+        elif b is Biome:
+            biome = str((b as Biome).id)
+            biome_ref = b
         elif typeof(b) == TYPE_STRING:
             biome = str(b)
         else:
@@ -82,6 +86,59 @@ func tile_key() -> String:
         return ""
     return "%s_%s" % [biome, type]
 
+func get_biome_id() -> String:
+    var bval: Variant = biome
+    if bval is String:
+        return str(bval)
+    if bval is Biome:
+        return str((bval as Biome).id)
+    if biome_ref is Biome:
+        return str(biome_ref.id)
+    if typeof(bval) == TYPE_DICTIONARY:
+        var dict: Dictionary = bval
+        if dict.has("_id"):
+            return str(dict.get("_id"))
+        if dict.has("id"):
+            return str(dict.get("id"))
+    elif typeof(bval) == TYPE_OBJECT and bval != null:
+        if bval is Biome:
+            return str((bval as Biome).id)
+        if bval.has_method("get"):
+            var id_val = str(bval.get("id", ""))
+            if id_val != "":
+                return id_val
+            id_val = str(bval.get("_id", ""))
+            if id_val != "":
+                return id_val
+        if bval.has_method("get_id"):
+            var method_id := str(bval.call("get_id"))
+            if method_id != "":
+                return method_id
+    return ""
+
+func get_biome() -> Biome:
+    if biome_ref is Biome:
+        return biome_ref
+    var bval: Variant = biome
+    if bval is Biome:
+        biome_ref = bval
+        return biome_ref
+    var bid := get_biome_id()
+    if bid == "":
+        return null
+    if Engine.has_singleton("GameManager"):
+        if GameManager.current_world != null and GameManager.current_world.biomes is Array:
+            for b in GameManager.current_world.biomes:
+                if b != null and str(b.id) == bid:
+                    biome_ref = b
+                    return biome_ref
+        if GameManager.current_world != null:
+            var cached: Biome = GameManager.current_world.get_biome_by_id(bid)
+            if cached != null:
+                biome_ref = cached
+                return biome_ref
+    return null
+
 func to_dict() -> Dictionary:
     var out := {
         "id": id,
@@ -105,7 +162,7 @@ func to_dict() -> Dictionary:
     return out
 
 # Convenience: ensure this locale is fully loaded via API by id
-func ensure_loaded(world_id: String) -> Locale:
+func ensure_loaded(world_id: String, world: World = null) -> Locale:
     if _loaded_full:
         return self
     if id == "":
@@ -120,6 +177,9 @@ func ensure_loaded(world_id: String) -> Locale:
     var full: Locale = await cls.fetch_by_id(world_id, id)
     if full != null:
         _apply_from(full)
+        var bid := get_biome_id()
+        if world != null and bid != "":
+            biome_ref = await world.ensure_biome_loaded(bid)
     return self
 
 func _apply_from(other: Locale) -> void:
@@ -139,5 +199,7 @@ func _apply_from(other: Locale) -> void:
     special_features = other.special_features.duplicate(true)
     resources = other.resources.duplicate(true)
     population = other.population
+    biome = other.get_biome_id()
+    biome_ref = other.biome_ref if other.biome_ref is Biome else other.get_biome()
     _loaded_full = true
 
