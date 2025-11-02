@@ -352,49 +352,218 @@ func _apply_terrain_map(grid: Array) -> void:
 		return
 
 	var height := grid.size()
-	var pair_keys := _terrain_pair_sources.keys()
-	print("[LocaleScreen] _apply_terrain_map start height=", height, " pair_keys=", pair_keys)
+	if height == 0:
+		print("[LocaleScreen] _apply_terrain_map abort: empty grid")
+		return
+	
+	var first_row = grid[0]
+	var width := (first_row as PackedInt32Array).size() if first_row is PackedInt32Array else 0
+	if width == 0:
+		print("[LocaleScreen] _apply_terrain_map abort: zero width")
+		return
+	
+	print("[LocaleScreen] _apply_terrain_map start using Wang tileset logic, grid size=", width, "x", height)
+	
 	var placed := 0
 	var skipped := 0
+	var multi_terrain_warnings := 0
 	var terrain_sid_counts := {}
-	for y in range(height):
-		var row = grid[y]
-		if row == null:
-			print("[LocaleScreen]   skipped null row y=", y)
-			continue
-		var packed_row: PackedInt32Array = row if row is PackedInt32Array else PackedInt32Array(row)
-		var width := packed_row.size()
-		for x in range(width):
-			var terrain_idx := int(packed_row[x])
-			var sid := -1
-			var atlas_coord := Vector2i.ZERO
-			for pair in _terrain_pair_sources.keys():
-				var pair_indices: PackedInt32Array = pair
-				if pair_indices.size() != 2:
-					continue
-				var first_idx := int(pair_indices[0])
-				var second_idx := int(pair_indices[1])
-				if first_idx == terrain_idx:
-					sid = int(_terrain_pair_sources[pair])
-					atlas_coord = Vector2i(0, 0)
-					break
-				if second_idx == terrain_idx:
-					sid = int(_terrain_pair_sources[pair])
-					atlas_coord = Vector2i(1, 0)
-					break
-			if sid < 0:
+	
+	# Process intermediary points (shifted 0.5, 0.5 from grid)
+	# For each intermediary point, we check the 4 surrounding grid points
+	for y in range(height - 1):
+		for x in range(width - 1):
+			# Get the 4 corner terrain indices around this intermediary point
+			var top_left := _get_terrain_at(grid, x, y)
+			var top_right := _get_terrain_at(grid, x + 1, y)
+			var bottom_left := _get_terrain_at(grid, x, y + 1)
+			var bottom_right := _get_terrain_at(grid, x + 1, y + 1)
+			
+			# Collect unique terrain types in the 4 corners
+			var unique_terrains := {}
+			unique_terrains[top_left] = true
+			unique_terrains[top_right] = true
+			unique_terrains[bottom_left] = true
+			unique_terrains[bottom_right] = true
+			
+			var terrain_types := unique_terrains.keys()
+			var terrain_count := terrain_types.size()
+			
+			# Handle cases with more than 2 terrains
+			if terrain_count > 2:
+				if multi_terrain_warnings < 10:
+					print("[LocaleScreen]   WARNING: More than 2 terrains at intermediary point (", x, ".5, ", y, ".5): ", terrain_types)
+					multi_terrain_warnings += 1
 				skipped += 1
-				if skipped < 10:
-					print("[LocaleScreen]   no source for terrain_idx=", terrain_idx, " at (", x, ",", y, ")")
 				continue
-			_terrain_layer.set_cell(Vector2i(x, y), sid, atlas_coord, 0)
-			print("[LocaleScreen]   placed terrain_idx=", terrain_idx, " sid=", sid, " atlas_coord=", atlas_coord, " at (", x, ",", y, ")")
+			
+			# For uniform terrain (all corners same), we still need to render solid tiles
+			# For transitions, we have 2 different terrains
+			var result: Dictionary
+			if terrain_count == 1:
+				# All corners same - find any pair containing this terrain and use solid tile
+				var uniform_terrain: int = int(terrain_types[0])
+				result = _find_uniform_wang_tile(uniform_terrain)
+			else:
+				# Transition between two terrains
+				var terrain_a: int = int(terrain_types[0])
+				var terrain_b: int = int(terrain_types[1])
+				result = _find_wang_tile(terrain_a, terrain_b, top_left, top_right, bottom_left, bottom_right)
+			
+			if result.sid < 0:
+				skipped += 1
+				continue
+			
+			# Place the tile at the intermediary position
+			_terrain_layer.set_cell(Vector2i(x, y), result.sid, result.atlas_coord, 0)
 			placed += 1
-			var key := "%s:%s,%s" % [sid, atlas_coord.x, atlas_coord.y]
+			
+			var key := "%s:%s,%s" % [result.sid, result.atlas_coord.x, result.atlas_coord.y]
 			terrain_sid_counts[key] = terrain_sid_counts.get(key, 0) + 1
+	
+	if multi_terrain_warnings >= 10:
+		print("[LocaleScreen]   (suppressed additional multi-terrain warnings)")
+	
 	if _terrain_layer.has_method("queue_redraw"):
 		_terrain_layer.queue_redraw()
-	print("[LocaleScreen] _apply_terrain_map end placed=", placed, " skipped=", skipped, " sid_counts=", terrain_sid_counts)
+	
+	print("[LocaleScreen] _apply_terrain_map end placed=", placed, " skipped=", skipped, " multi_terrain_warnings=", multi_terrain_warnings)
+	print("[LocaleScreen] sid_counts=", terrain_sid_counts)
+
+func _get_terrain_at(grid: Array, x: int, y: int) -> int:
+	if y < 0 or y >= grid.size():
+		return -1
+	var row = grid[y]
+	var packed_row: PackedInt32Array = row if row is PackedInt32Array else PackedInt32Array(row)
+	if x < 0 or x >= packed_row.size():
+		return -1
+	return int(packed_row[x])
+
+func _find_uniform_wang_tile(terrain_idx: int) -> Dictionary:
+	var result := {"sid": -1, "atlas_coord": Vector2i.ZERO}
+	
+	# Find any pair that includes this terrain
+	var found_pair: PackedInt32Array
+	var is_first_terrain := false
+	
+	for pair in _terrain_pair_sources.keys():
+		var pair_indices: PackedInt32Array = pair
+		if pair_indices.size() != 2:
+			continue
+		
+		var idx_a := int(pair_indices[0])
+		var idx_b := int(pair_indices[1])
+		
+		if idx_a == terrain_idx:
+			found_pair = pair_indices
+			is_first_terrain = true
+			break
+		elif idx_b == terrain_idx:
+			found_pair = pair_indices
+			is_first_terrain = false
+			break
+	
+	if found_pair.size() == 0:
+		return result
+	
+	result.sid = int(_terrain_pair_sources[found_pair])
+	
+	# Use the appropriate solid tile:
+	# - If this terrain is the "first" in the pair, use mask 0b1111 (all first) -> atlas (0,0)
+	# - If this terrain is the "second" in the pair, use mask 0b0000 (all second) -> atlas (1,0)
+	if is_first_terrain:
+		result.atlas_coord = Vector2i(1, 0)  # uuuu - all first terrain
+	else:
+		result.atlas_coord = Vector2i(0, 0)  # llll - all second terrain
+	
+	return result
+
+func _find_wang_tile(terrain_a: int, terrain_b: int, top_left: int, top_right: int, bottom_left: int, bottom_right: int) -> Dictionary:
+	var result := {"sid": -1, "atlas_coord": Vector2i.ZERO}
+	
+	# Find the source ID for this terrain pair
+	var sid := -1
+	var pair_key: PackedInt32Array
+	
+	for pair in _terrain_pair_sources.keys():
+		var pair_indices: PackedInt32Array = pair
+		if pair_indices.size() != 2:
+			continue
+		
+		var idx_a := int(pair_indices[0])
+		var idx_b := int(pair_indices[1])
+		
+		# Check if this pair matches our terrains (in either order)
+		if (idx_a == terrain_a and idx_b == terrain_b) or (idx_a == terrain_b and idx_b == terrain_a):
+			sid = int(_terrain_pair_sources[pair])
+			pair_key = pair_indices
+			break
+	
+	if sid < 0:
+		return result
+	
+	result.sid = sid
+	
+	# Determine Wang tile index based on corner configuration
+	# We use a 2-corner Wang tileset (blob tileset) with 16 possible configurations
+	# Each corner can be terrain A or terrain B
+	# We encode this as a 4-bit number: [TL][TR][BL][BR]
+	
+	# Normalize so terrain_a is always the "first" terrain in the pair
+	var first_terrain := int(pair_key[0])
+	var second_terrain := int(pair_key[1])
+	
+	# Build a bitmask: 1 if corner matches first_terrain, 0 if second_terrain
+	var mask := 0
+	if top_left == first_terrain:
+		mask |= 8  # bit 3
+	if top_right == first_terrain:
+		mask |= 4  # bit 2
+	if bottom_left == first_terrain:
+		mask |= 2  # bit 1
+	if bottom_right == first_terrain:
+		mask |= 1  # bit 0
+	
+	# Map the mask to atlas coordinates
+	# Standard Wang blob tileset layout is 4x4 (16 tiles)
+	result.atlas_coord = _wang_mask_to_atlas_coord(mask)
+	
+	return result
+
+func _wang_mask_to_atlas_coord(mask: int) -> Vector2i:
+	# Custom Wang tileset mapping based on actual tileset layout
+	# Mask format: [TL][TR][BL][BR] where 1 = first/upper terrain, 0 = second/lower terrain
+	# Layout order: "uuuu, llll, ulll, lllu, lluu, llul, lulu, lull, ulul, uuul, uull, uluu, luuu, uulu, ullu, luul"
+	# Where u=upper/first terrain, l=lower/second terrain
+	# Pattern order: TL, TR, BL, BR
+	
+	var wang_coords := {
+		0b0000: Vector2i(1, 0),  # llll - all second/lower terrain
+		0b0001: Vector2i(3, 0),  # lllu - BR only first
+		0b0010: Vector2i(1, 1),  # llul - BL only first
+		0b0011: Vector2i(0, 1),  # lluu - BL,BR first (bottom edge)
+		0b0100: Vector2i(3, 1),  # lull - TR only first
+		0b0101: Vector2i(2, 1),  # lulu - TR,BR first (diagonal)
+		0b0110: Vector2i(3, 3),  # luul - TR,BL first (diagonal)
+		0b0111: Vector2i(0, 3),  # luuu - TR,BL,BR first (all but TL)
+		0b1000: Vector2i(2, 0),  # ulll - TL only first
+		0b1001: Vector2i(2, 3),  # ullu - TL,BR first (diagonal)
+		0b1010: Vector2i(0, 2),  # ulul - TL,BL first (left edge)
+		0b1011: Vector2i(3, 2),  # uluu - TL,BL,BR first (all but TR)
+		0b1100: Vector2i(2, 2),  # uull - TL,TR first (top edge)
+		0b1101: Vector2i(1, 3),  # uulu - TL,TR,BR first (all but BL)
+		0b1110: Vector2i(1, 2),  # uuul - TL,TR,BL first (all but BR)
+		0b1111: Vector2i(0, 0),  # uuuu - all first/upper terrain
+	}
+	
+	if wang_coords.has(mask):
+		return wang_coords[mask]
+	
+	# Fallback - should not happen with complete mapping
+	print("[LocaleScreen] WARNING: Unknown Wang mask ", mask, " using fallback")
+	var row := int(mask / 4)
+	var col := int(mask % 4)
+	return Vector2i(col, row)
 
 func _debug_render_tileset_sources_preview() -> void:
 	if _terrain_layer == null or _terrain_tileset == null:
