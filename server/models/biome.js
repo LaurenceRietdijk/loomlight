@@ -17,6 +17,8 @@ const BiomeSchema = new mongoose.Schema({
   description: { type: String, required: true },
   // Weighted list of terrains in this biome (backward-compat: accept array of ObjectIds on input)
   terrains: { type: [WeightedTerrainSchema], default: [] },
+  // List of vegetation UIDs present in this biome
+  vegetations: { type: [mongoose.Schema.Types.ObjectId], ref: "Vegetation", default: [] },
   locales: {
     type: Map,
     of: Boolean,

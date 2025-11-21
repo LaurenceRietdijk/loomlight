@@ -20,6 +20,7 @@ app.use("/locale", require("./routes/locale"));
 app.use("/race", require("./routes/race"));
 app.use("/biome", require("./routes/biome"));
 app.use("/terrain", require("./routes/terrain"));
+app.use("/vegetation", require("./routes/vegetation"));
 app.use("/quest", require("./routes/quest"));
 app.use("/character", require("./routes/character"));
 app.use("/playerCharacter", require("./routes/playerCharacter"));

@@ -15,6 +15,7 @@
         <button class="tab-button" data-tab="locale">Locale</button>
         <button class="tab-button" data-tab="biomes">Biomes</button>
         <button class="tab-button" data-tab="terrains">Terrains</button>
+        <button class="tab-button" data-tab="vegetations">Vegetations</button>
         <button class="tab-button" data-tab="character" disabled>Character</button>
         <button class="tab-button" data-tab="quests" disabled>Quests</button>
       </nav>
@@ -129,6 +130,23 @@
         </div>
       </section>
 
+      <section id="tab-vegetations" class="tab-panel">
+        <div class="panel">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+            <h2 style="margin:0;">Global Vegetations</h2>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button id="btn-generate-vegetation">Generate Vegetation</button>
+              <button id="btn-generate-vegetation-image">Generate Image for Next Vegetation</button>
+            </div>
+          </div>
+          <div class="muted" style="margin:6px 0 10px 0;">
+            Vegetations are global plant types that can be assigned to biomes. Generation uses the selected world as context if available.
+          </div>
+          <div id="vegetations-list" class="world-list"></div>
+          <div id="vegetations-error" class="error"></div>
+        </div>
+      </section>
+
       <section id="tab-character" class="tab-panel">
         <div class="panel">
           <div id="character-header" class="character-header"></div>
@@ -178,13 +196,3 @@
     <script src="/app.js"></script>
   </body>
   </html>
-
-
-
-
-
-
-
-
-
-

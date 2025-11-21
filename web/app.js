@@ -10,6 +10,7 @@
     selectedPlayerCharacter: null,
     quests: [],
     terrains: [],
+    vegetations: [],
   };
 
   // Tab wiring
@@ -20,6 +21,7 @@
     locale: document.getElementById('tab-locale'),
     biomes: document.getElementById('tab-biomes'),
     terrains: document.getElementById('tab-terrains'),
+    vegetations: document.getElementById('tab-vegetations'),
     character: document.getElementById('tab-character'),
     quests: document.getElementById('tab-quests'),
   };
@@ -47,6 +49,9 @@
     }
     if (key === 'terrains') {
       loadTerrains();
+    }
+    if (key === 'vegetations') {
+      loadVegetations();
     }
   }
   document.querySelector('.tabs').addEventListener('click', (e) => {
@@ -594,6 +599,121 @@
       }
     });
   }
+  // Vegetations UI
+  const elVegetationsList = document.getElementById('vegetations-list');
+  const elVegetationsErr = document.getElementById('vegetations-error');
+  const btnGenerateVegetation = document.getElementById('btn-generate-vegetation');
+
+  async function loadVegetations() {
+    if (!elVegetationsList) return;
+    elVegetationsErr.textContent = '';
+    try {
+      const res = await fetch('/vegetation');
+      if (!res.ok) throw new Error('Failed to load vegetations');
+      const data = await res.json();
+      state.vegetations = data.vegetations || [];
+      renderVegetations(state.vegetations);
+    } catch (e) {
+      console.error(e);
+      elVegetationsErr.textContent = 'Error loading vegetations.';
+    }
+  }
+
+  function renderVegetations(list) {
+    if (!elVegetationsList) return;
+    if (!Array.isArray(list) || list.length === 0) {
+      elVegetationsList.innerHTML = '<div class="world-meta">No vegetations yet. Generate one to get started.</div>';
+      return;
+    }
+    elVegetationsList.innerHTML = '';
+    list.forEach((v) => {
+      const name = escapeHtml(v.name || 'Unnamed Vegetation');
+      const desc = escapeHtml(v.description || '');
+      const type = escapeHtml(v.type || 'unknown');
+      const hasImage = v.texture && v.texture.imagePath;
+      const imageStatus = hasImage ? 'Image: available' : 'Image: pending';
+      const vegetationId = v._id || v.id || '';
+      
+      const card = document.createElement('div');
+      card.className = 'world-card';
+      card.style.cursor = 'default';
+      card.innerHTML = `
+        <div class="world-title">${name} <span class="tag">${type}</span></div>
+        <div class="world-meta">${desc}</div>
+        <div class="world-meta muted">${imageStatus}</div>
+        <div class="actions" style="margin-top:8px;">
+          <button class="btn-generate-veg-image" data-veg-id="${escapeHtml(vegetationId)}" ${hasImage ? 'disabled' : ''}>
+            ${hasImage ? 'Image Generated' : 'Generate Image'}
+          </button>
+        </div>
+      `;
+      
+      const btnGenImage = card.querySelector('.btn-generate-veg-image');
+      if (btnGenImage && !hasImage) {
+        btnGenImage.addEventListener('click', async () => {
+          const vegId = btnGenImage.getAttribute('data-veg-id');
+          if (!vegId) return;
+          
+          btnGenImage.disabled = true;
+          const prevText = btnGenImage.textContent;
+          btnGenImage.textContent = 'Generating...';
+          
+          try {
+            const res = await fetch('/vegetation/generate-image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ vegetation_id: vegId })
+            });
+            
+            if (!res.ok) {
+              const errorText = await res.text();
+              throw new Error(errorText || 'Failed to generate image');
+            }
+            
+            const data = await res.json();
+            await loadVegetations();
+            showToast('Image generated for ' + name);
+          } catch (e) {
+            console.error(e);
+            elVegetationsErr.textContent = 'Error generating image: ' + e.message;
+            btnGenImage.disabled = false;
+            btnGenImage.textContent = prevText;
+          }
+        });
+      }
+      
+      elVegetationsList.appendChild(card);
+    });
+  }
+
+  if (btnGenerateVegetation) {
+    btnGenerateVegetation.addEventListener('click', async () => {
+      elVegetationsErr.textContent = '';
+      btnGenerateVegetation.disabled = true;
+      btnGenerateVegetation.textContent = 'Generating...';
+      try {
+        const body = {};
+        if (state.currentWorld && state.currentWorld._id) {
+          body.world_id = String(state.currentWorld._id);
+        }
+        const res = await fetch('/vegetation/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) throw new Error('Failed to generate vegetation');
+        await loadVegetations();
+        showToast('Vegetation generated');
+      } catch (e) {
+        console.error(e);
+        elVegetationsErr.textContent = 'Error generating vegetation.';
+      } finally {
+        btnGenerateVegetation.disabled = false;
+        btnGenerateVegetation.textContent = 'Generate Vegetation';
+      }
+    });
+  }
+
   async function ensureActivePCDoc(worldId, pcId) {
     try {
       await fetch('/activePlayerCharacter/enter', {

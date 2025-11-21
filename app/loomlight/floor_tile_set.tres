@@ -1,0 +1,64 @@
+[gd_resource type="TileSet" load_steps=17 format=3 uid="uid://cxfaqei63ysr1"]
+
+[ext_resource type="Texture2D" uid="uid://wb641wy7qrwu" path="res://assets/Kenney/dungeon/Isometric/planks_E.png" id="1_veb7u"]
+[ext_resource type="Texture2D" uid="uid://ce7v2n6wx7rje" path="res://assets/Kenney/dungeon/Isometric/stoneMissingTiles_E.png" id="2_wapln"]
+[ext_resource type="Texture2D" uid="uid://bpgev6vn1xfqf" path="res://assets/Kenney/dungeon/Isometric/stoneInset_E.png" id="3_x2e5x"]
+[ext_resource type="Texture2D" uid="uid://c70wxckiw57tb" path="res://assets/Kenney/dungeon/Isometric/planksHole_E.png" id="4_y81pw"]
+[ext_resource type="Texture2D" uid="uid://co4pqa78g7xyo" path="res://assets/Kenney/dungeon/Isometric/planksBroken_E.png" id="5_avo5c"]
+[ext_resource type="Texture2D" uid="uid://cnhp0fxitx8hl" path="res://assets/Kenney/dungeon/Isometric/stoneTile_E.png" id="6_pcpmx"]
+[ext_resource type="Texture2D" uid="uid://cfncgj2aa6mnc" path="res://assets/Kenney/dungeon/Isometric/stone_E.png" id="7_7u7yn"]
+[ext_resource type="Texture2D" uid="uid://dmsarcsl1dtaj" path="res://assets/Kenney/dungeon/Isometric/stoneUneven_E.png" id="8_buw4e"]
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_wapln"]
+texture = ExtResource("1_veb7u")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_akdcm"]
+texture = ExtResource("2_wapln")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_sj36q"]
+texture = ExtResource("3_x2e5x")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_hnibf"]
+texture = ExtResource("4_y81pw")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_g3d6u"]
+texture = ExtResource("5_avo5c")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_wys3y"]
+texture = ExtResource("6_pcpmx")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_n5uaw"]
+texture = ExtResource("7_7u7yn")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[sub_resource type="TileSetAtlasSource" id="TileSetAtlasSource_4v82d"]
+texture = ExtResource("8_buw4e")
+texture_region_size = Vector2i(256, 512)
+0:0/0 = 0
+
+[resource]
+tile_shape = 1
+tile_layout = 5
+tile_offset_axis = 1
+tile_size = Vector2i(256, 128)
+sources/0 = SubResource("TileSetAtlasSource_wapln")
+sources/4 = SubResource("TileSetAtlasSource_wys3y")
+sources/8 = SubResource("TileSetAtlasSource_n5uaw")
+sources/9 = SubResource("TileSetAtlasSource_4v82d")
+sources/15 = SubResource("TileSetAtlasSource_akdcm")
+sources/17 = SubResource("TileSetAtlasSource_sj36q")
+sources/21 = SubResource("TileSetAtlasSource_hnibf")
+sources/22 = SubResource("TileSetAtlasSource_g3d6u")
